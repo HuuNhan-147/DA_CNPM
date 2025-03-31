@@ -9,57 +9,57 @@ export const createUser = async (req, res) => {
     const { name, email, password, phone, isAdmin } = req.body;
 
     // Kiểm tra email đã tồn tại chưa
-    const userExists = await User.findOne({ email });
-    if (userExists) {
+    if (await User.findOne({ email })) {
       return res.status(400).json({ message: "Email đã tồn tại!" });
     }
 
-    // Băm mật khẩu trước khi lưu vào database
+    // Băm mật khẩu
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Tạo Access Token & Refresh Token (KHÔNG lưu vào .env, chỉ lấy secret từ đó)
-    const accessToken = jwt.sign(
-      { email },
-      process.env.ACCESS_TOKEN_SECRET, // 🔐 Lấy secret từ .env
-      { expiresIn: "1h" }
-    );
-    const refreshToken = jwt.sign(
-      { email },
-      process.env.REFRESH_TOKEN_SECRET, // 🔐 Lấy secret từ .env
-      { expiresIn: "7d" }
-    );
-
-    // Tạo người dùng mới và lưu token vào DB
+    // Tạo người dùng mới
     const newUser = new User({
       name,
       email,
       password: hashedPassword,
       phone,
       isAdmin: isAdmin || false,
-      access_token: accessToken, // ✅ Lưu token vào database
-      refresh_token: refreshToken, // ✅ Lưu token vào database
     });
 
     await newUser.save();
 
+    // Tạo token
+    const accessToken = jwt.sign(
+      { id: newUser._id, email: newUser.email, isAdmin: newUser.isAdmin },
+      process.env.ACCESS_TOKEN_SECRET,
+      { expiresIn: "1h" }
+    );
+    const refreshToken = jwt.sign(
+      { id: newUser._id },
+      process.env.REFRESH_TOKEN_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    // Lưu refreshToken vào cookie HTTP-only
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "Strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
     res.status(201).json({
       message: "Tạo tài khoản thành công!",
+      accessToken, // Chỉ trả về accessToken
       user: {
         id: newUser._id,
         name: newUser.name,
         email: newUser.email,
         phone: newUser.phone,
         isAdmin: newUser.isAdmin,
-        access_token: newUser.access_token, // ✅ Trả về access_token
-        refresh_token: newUser.refresh_token, // ✅ Trả về refresh_token
       },
     });
   } catch (error) {
-    console.error("Lỗi chi tiết:", error);
-    res.status(500).json({
-      message: "Lỗi server!",
-      error: error.message,
-    });
+    res.status(500).json({ message: "Lỗi server!", error: error.message });
   }
 };
 // 🔹 2. Đăng nhập người dùng
@@ -67,29 +67,38 @@ export const loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Kiểm tra tài khoản có tồn tại không
     const user = await User.findOne({ email });
-    if (!user) {
+    if (!user)
       return res.status(400).json({ message: "Tài khoản không tồn tại!" });
-    }
 
     // Kiểm tra mật khẩu
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
+    if (!(await bcrypt.compare(password, user.password))) {
       return res.status(400).json({ message: "Mật khẩu không đúng!" });
     }
 
-    // Tạo Token
-    const token = jwt.sign(
-      { userId: user._id, isAdmin: user.isAdmin },
+    // Tạo token
+    const accessToken = jwt.sign(
+      { id: user._id, email: user.email, isAdmin: user.isAdmin },
       process.env.ACCESS_TOKEN_SECRET,
       { expiresIn: "1h" }
     );
+    const refreshToken = jwt.sign(
+      { id: user._id },
+      process.env.REFRESH_TOKEN_SECRET,
+      { expiresIn: "7d" }
+    );
 
-    // Trả về thông tin cơ bản của user (ẩn mật khẩu)
+    // Lưu refreshToken vào cookie HTTP-only
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "Strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
     res.status(200).json({
       message: "Đăng nhập thành công!",
-      token,
+      accessToken,
       user: {
         id: user._id,
         name: user.name,
@@ -99,11 +108,7 @@ export const loginUser = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Lỗi chi tiết:", error);
-    res.status(500).json({
-      message: "Lỗi server!",
-      error: error.message,
-    });
+    res.status(500).json({ message: "Lỗi server!", error: error.message });
   }
 };
 
@@ -115,8 +120,11 @@ export const getUserProfile = async (req, res) => {
       return res.status(401).json({ message: "Không có quyền truy cập!" });
     }
 
-    // Tìm người dùng theo ID, loại bỏ password
-    const user = await User.findById(req.user).select("-password");
+    // Tìm người dùng theo ID, loại bỏ password và token trong kết quả trả về
+    // Chỉ lấy các trường cần thiết
+    const user = await User.findById(req.user).select(
+      "-password -access_token -refresh_token -createdAt -updatedAt"
+    );
 
     if (!user) {
       return res.status(404).json({ message: "Người dùng không tồn tại!" });
@@ -208,7 +216,9 @@ export const getAllUsers = async (req, res) => {
       return res.status(403).json({ message: "Bạn không có quyền truy cập!" });
     }
 
-    const users = await User.find().select("-password");
+    const users = await User.find().select(
+      "-password -access_token -refresh_token"
+    );
     res.status(200).json(users);
   } catch (error) {
     console.error("Lỗi chi tiết:", error);
@@ -239,22 +249,22 @@ export const forgotPassword = async (req, res) => {
     const { email } = req.body;
     const user = await User.findOne({ email });
 
-    if (!user) {
+    if (!user)
       return res.status(404).json({ message: "Không tìm thấy email!" });
-    }
 
-    // ✅ Tạo token reset password
+    // Tạo token reset password
     const resetToken = crypto.randomBytes(32).toString("hex");
+    const hashedToken = crypto
+      .createHash("sha256")
+      .update(resetToken)
+      .digest("hex");
 
-    // ✅ Lưu token vào DB với thời gian hết hạn là 15 phút
-    user.resetPasswordToken = resetToken;
+    user.resetPasswordToken = hashedToken;
     user.resetPasswordExpires = Date.now() + 15 * 60 * 1000; // 15 phút
     await user.save();
 
-    // ✅ Tạo link reset password
     const resetURL = `http://localhost:5000/users/reset-password/${resetToken}`;
 
-    // ✅ Gửi email
     await sendEmail(
       user.email,
       "Đặt lại mật khẩu",
@@ -282,19 +292,19 @@ export const resetPassword = async (req, res) => {
     const { token } = req.params;
     const { password } = req.body;
 
-    // Tìm user có token hợp lệ
+    const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
+
     const user = await User.findOne({
-      resetPasswordToken: token,
-      resetPasswordExpires: { $gt: Date.now() }, // Kiểm tra token còn hạn
+      resetPasswordToken: hashedToken,
+      resetPasswordExpires: { $gt: Date.now() },
     });
 
-    if (!user) {
+    if (!user)
       return res
         .status(400)
         .json({ message: "Token không hợp lệ hoặc đã hết hạn!" });
-    }
 
-    // Băm mật khẩu mới
+    // Cập nhật mật khẩu
     user.password = await bcrypt.hash(password, 10);
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
@@ -306,35 +316,44 @@ export const resetPassword = async (req, res) => {
   }
 };
 
-export const changePassword = async (req, res) => {
+export const updatePassword = async (req, res) => {
   try {
-    const { resetToken, newPassword } = req.body;
+    const { oldPassword, newPassword } = req.body;
 
-    // ✅ Tìm user theo reset token và kiểm tra thời gian hết hạn
-    const user = await User.findOne({
-      resetPasswordToken: resetToken,
-      resetPasswordExpires: { $gt: Date.now() }, // Kiểm tra hạn token
-    });
-
-    if (!user) {
-      return res
-        .status(400)
-        .json({ message: "Token không hợp lệ hoặc đã hết hạn!" });
+    // ✅ Kiểm tra user đã đăng nhập chưa
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({ message: "Bạn chưa đăng nhập!" });
     }
 
-    // ✅ Hash mật khẩu mới
+    // ✅ Lấy thông tin user từ database
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ message: "Người dùng không tồn tại!" });
+    }
+
+    // ✅ Kiểm tra mật khẩu cũ
+    const isMatch = await bcrypt.compare(oldPassword, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ message: "Mật khẩu cũ không đúng!" });
+    }
+
+    // ✅ Kiểm tra mật khẩu mới có trùng mật khẩu cũ không
+    if (await bcrypt.compare(newPassword, user.password)) {
+      return res
+        .status(400)
+        .json({ message: "Mật khẩu mới không được trùng với mật khẩu cũ!" });
+    }
+
+    // ✅ Hash mật khẩu mới và cập nhật
     user.password = await bcrypt.hash(newPassword, 10);
-
-    // ✅ Xóa token reset sau khi đổi mật khẩu thành công
-    user.resetPasswordToken = undefined;
-    user.resetPasswordExpires = undefined;
-
     await user.save();
 
-    res.status(200).json({ message: "Đổi mật khẩu thành công!" });
+    res.status(200).json({ message: "Cập nhật mật khẩu thành công!" });
   } catch (error) {
+    console.error("Lỗi cập nhật mật khẩu:", error);
     res.status(500).json({ message: "Lỗi server!", error: error.message });
   }
 };
+
 //netstat -ano | findstr :5000
 //taskkill /PID 9172 /F

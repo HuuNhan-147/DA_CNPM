@@ -5,7 +5,7 @@ const orderSchema = new mongoose.Schema(
     orderItems: [
       {
         name: { type: String, required: true },
-        quantity: { type: Number, required: true }, // Đổi 'amount' thành 'quantity'
+        quantity: { type: Number, required: true }, // Đúng
         image: { type: String, required: true },
         price: { type: Number, required: true },
         product: {
@@ -17,7 +17,7 @@ const orderSchema = new mongoose.Schema(
     ],
     shippingAddress: {
       fullname: { type: String, required: true },
-      phone: { type: String, required: true }, // Đổi `Number` thành `String` để tránh lỗi nhập số điện thoại
+      phone: { type: String, required: true }, // Đúng
       address: { type: String, required: true },
       city: { type: String, required: true },
     },
@@ -33,11 +33,17 @@ const orderSchema = new mongoose.Schema(
     },
     isPaid: { type: Boolean, default: false },
     paidAt: { type: Date },
+    paymentStatus: {
+      type: String,
+      enum: ["pending", "paid", "failed"], // Thêm trạng thái thanh toán
+      default: "pending",
+    },
+    vnpayTransactionId: { type: String }, // Lưu mã giao dịch VNPay
     isDelivered: { type: Boolean, default: false },
     deliveredAt: { type: Date },
   },
   {
-    timestamps: true,
+    timestamps: true, // Tự động tạo `createdAt` & `updatedAt`
   }
 );
 

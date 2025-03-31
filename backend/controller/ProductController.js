@@ -123,44 +123,28 @@ export const updateProduct = asyncHandler(async (req, res) => {
       return res.status(404).json({ message: "Sản phẩm không tồn tại!" });
     }
 
+    // Lấy dữ liệu từ req.body
     let { name, price, category, rating, countInStock, description } = req.body;
 
-    // Chuyển đổi dữ liệu từ form-data
-    name = parseFormData(name);
-    price = parseFormData(price);
+    // Chuyển đổi dữ liệu từ form-data nếu có
+    if (name !== undefined) product.name = parseFormData(name);
+    if (price !== undefined) product.price = parseFloat(parseFormData(price));
+    if (rating !== undefined)
+      product.rating = parseFloat(parseFormData(rating));
+    if (countInStock !== undefined)
+      product.countInStock = parseInt(parseFormData(countInStock));
+    if (description !== undefined)
+      product.description = parseFormData(description);
 
-    category = parseFormData(category);
-    rating = parseFormData(rating);
-    countInStock = parseFormData(countInStock);
-    description = parseFormData(description);
-
-    if (
-      !name ||
-      isNaN(price) ||
-      !category ||
-      isNaN(rating) ||
-      isNaN(countInStock) ||
-      !description
-    ) {
-      return res
-        .status(400)
-        .json({ message: "Vui lòng nhập đầy đủ thông tin sản phẩm!" });
+    // Kiểm tra danh mục nếu có
+    if (category !== undefined) {
+      category = parseFormData(category);
+      const existingCategory = await Category.findById(category);
+      if (!existingCategory) {
+        return res.status(400).json({ message: "Danh mục không hợp lệ!" });
+      }
+      product.category = existingCategory._id;
     }
-
-    // ✅ Kiểm tra danh mục có tồn tại không
-    const existingCategory = await Category.findById(category);
-    if (!existingCategory) {
-      return res.status(400).json({ message: "Danh mục không hợp lệ!" });
-    }
-
-    // Cập nhật thông tin sản phẩm
-    product.name = name;
-    product.price = price;
-
-    product.category = existingCategory._id;
-    product.rating = rating;
-    product.countInStock = countInStock;
-    product.description = description;
 
     // Nếu có ảnh mới, cập nhật ảnh
     if (req.file) {
@@ -201,25 +185,32 @@ export const getProducts = asyncHandler(async (req, res) => {
 
     let filter = {}; // Điều kiện tìm kiếm
 
-    // 🔍 Tìm kiếm theo tên sản phẩm (không phân biệt hoa thường)
-    if (keyword) {
+    // 🔍 Tìm kiếm theo tên sản phẩm
+    if (keyword && keyword.trim() !== "") {
       filter.name = { $regex: keyword, $options: "i" };
     }
 
     // 📂 Lọc theo danh mục
-    if (category) {
+    if (category && category.trim() !== "") {
       filter.category = category;
     }
 
-    // 💲 Lọc theo giá
-    if (!isNaN(minPrice) || !isNaN(maxPrice)) {
+    // 💲 Lọc theo giá (chỉ thêm nếu có giá trị hợp lệ)
+    if (
+      (minPrice && minPrice.trim() !== "" && !isNaN(minPrice)) ||
+      (maxPrice && maxPrice.trim() !== "" && !isNaN(maxPrice))
+    ) {
       filter.price = {};
-      if (!isNaN(minPrice)) filter.price.$gte = Number(minPrice); // Giá ≥ minPrice
-      if (!isNaN(maxPrice)) filter.price.$lte = Number(maxPrice); // Giá ≤ maxPrice
+      if (minPrice && minPrice.trim() !== "" && !isNaN(minPrice)) {
+        filter.price.$gte = Number(minPrice);
+      }
+      if (maxPrice && maxPrice.trim() !== "" && !isNaN(maxPrice)) {
+        filter.price.$lte = Number(maxPrice);
+      }
     }
 
-    // ⭐ Lọc theo đánh giá (rating)
-    if (!isNaN(rating)) {
+    // ⭐ Lọc theo đánh giá
+    if (rating && rating.trim() !== "" && !isNaN(rating)) {
       filter.rating = { $gte: Number(rating) };
     }
 
@@ -236,7 +227,7 @@ export const getProducts = asyncHandler(async (req, res) => {
         sortOption.createdAt = -1; // Sản phẩm mới nhất
         break;
       case "bestSelling":
-        sortOption.sold = -1; // Bán chạy nhất (giả sử có trường `sold`)
+        sortOption.sold = -1; // Bán chạy nhất
         break;
       default:
         sortOption.createdAt = -1; // Mặc định: mới nhất
@@ -249,6 +240,7 @@ export const getProducts = asyncHandler(async (req, res) => {
     res.status(500).json({ message: "Lỗi server", error: error.message });
   }
 });
+
 // ⭐ Thêm đánh giá cho sản phẩm
 export const addReview = asyncHandler(async (req, res) => {
   const { rating, comment } = req.body;

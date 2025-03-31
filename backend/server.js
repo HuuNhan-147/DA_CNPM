@@ -8,7 +8,13 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT;
 const MONGO_URI = process.env.MONGO_URI;
-
+app.use(
+  cors({
+    origin: "http://localhost:5173",
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true,
+  })
+);
 app.use(express.json()); // ✅ Middleware JSON
 app.use(express.urlencoded({ extended: true })); // Xử lý dữ liệu form
 app.use("/uploads", express.static("uploads")); // Cho phép truy cập ảnh đã upload
@@ -17,13 +23,6 @@ app.get("/", (req, res) => {
   res.send("Chào mừng bạn đến với API của tôi!");
 });
 // Cấu hình CORS
-app.use(
-  cors({
-    origin: "http://localhost:3000",
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    credentials: true,
-  })
-);
 mongoose
   .connect(MONGO_URI)
   .then(() => {

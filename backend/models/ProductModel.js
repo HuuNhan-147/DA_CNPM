@@ -18,7 +18,7 @@ const productSchema = new mongoose.Schema(
       ref: "Category", // ✅ Liên kết với bảng Category
       required: true,
     },
-    rating: { type: Number, required: true },
+    rating: { type: Number, default: 0 },
     countInStock: { type: Number, required: true },
     description: { type: String, required: true },
     numReviews: { type: Number, default: 0 }, // Số lượng đánh giá
@@ -28,5 +28,6 @@ const productSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
 const Product = mongoose.model("Product", productSchema);
 export default Product;

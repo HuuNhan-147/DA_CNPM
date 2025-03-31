@@ -7,8 +7,6 @@ const userSchema = new mongoose.Schema(
     password: { type: String, required: true },
     isAdmin: { type: Boolean, required: true, default: false },
     phone: { type: String, required: true },
-    access_token: { type: String, required: true },
-    refresh_token: { type: String, required: true },
     resetPasswordToken: { type: String }, // Token reset mật khẩu
     resetPasswordExpires: { type: Date }, // Thời gian hết hạn
   },

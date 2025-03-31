@@ -47,14 +47,43 @@ export const getCart = async (req, res) => {
   try {
     const cart = await Cart.findOne({ user: req.user._id }).populate(
       "cartItems.product",
-      "name image price"
+      "name price image"
     );
 
     if (!cart || cart.cartItems.length === 0) {
       return res.status(404).json({ message: "Giỏ hàng trống!" });
     }
 
-    res.status(200).json(cart);
+    // Tính tổng tiền của sản phẩm
+    const itemsPrice = cart.cartItems.reduce(
+      (acc, item) => acc + item.product.price * item.quantity,
+      0
+    );
+    const shippingPrice = 30000; // Phí vận chuyển cố định
+    const taxPrice = itemsPrice * 0.1; // Thuế 10%
+    const totalPrice = itemsPrice + shippingPrice + taxPrice;
+
+    res.status(200).json({
+      cart: {
+        _id: cart._id,
+        user: cart.user,
+        cartItems: cart.cartItems.map((item) => ({
+          product: {
+            _id: item.product._id,
+            name: item.product.name,
+            price: item.product.price,
+            image: item.product.image,
+          },
+          quantity: item.quantity,
+        })),
+        createdAt: cart.createdAt,
+        updatedAt: cart.updatedAt,
+      },
+      itemsPrice,
+      shippingPrice,
+      taxPrice,
+      totalPrice,
+    });
   } catch (error) {
     res.status(500).json({ message: "Lỗi server!", error: error.message });
   }
@@ -142,23 +171,12 @@ export const checkout = async (req, res) => {
     const { shippingAddress, paymentMethod } = req.body;
     const userId = req.user._id;
 
-    // Kiểm tra nếu thiếu thông tin
     if (!shippingAddress || !paymentMethod) {
-      return res
-        .status(400)
-        .json({
-          message: "Thiếu thông tin giao hàng hoặc phương thức thanh toán!",
-        });
+      return res.status(400).json({
+        message: "Thiếu thông tin giao hàng hoặc phương thức thanh toán!",
+      });
     }
 
-    const { fullname, phone, address, city } = shippingAddress;
-    if (!fullname || !phone || !address || !city) {
-      return res
-        .status(400)
-        .json({ message: "Thiếu thông tin địa chỉ giao hàng!" });
-    }
-
-    // Kiểm tra giỏ hàng của user
     const cart = await Cart.findOne({ user: userId }).populate(
       "cartItems.product",
       "name image price"
@@ -168,16 +186,14 @@ export const checkout = async (req, res) => {
       return res.status(400).json({ message: "Giỏ hàng trống!" });
     }
 
-    // Tính toán giá tiền
     const itemsPrice = cart.cartItems.reduce(
-      (acc, item) => acc + item.price * item.quantity,
+      (acc, item) => acc + item.product.price * item.quantity,
       0
     );
-    const shippingPrice = 30000; // Phí vận chuyển
-    const taxPrice = itemsPrice * 0.1; // Thuế 10%
+    const shippingPrice = 30000;
+    const taxPrice = itemsPrice * 0.1;
     const totalPrice = itemsPrice + shippingPrice + taxPrice;
 
-    // Tạo đơn hàng mới
     const order = new Order({
       user: userId,
       orderItems: cart.cartItems,
@@ -188,10 +204,10 @@ export const checkout = async (req, res) => {
       taxPrice,
       totalPrice,
       isPaid: false,
+      paymentStatus: "pending",
     });
 
     await order.save();
-    await Cart.findOneAndDelete({ user: userId });
 
     res.status(201).json({ message: "Đơn hàng đã được tạo!", order });
   } catch (error) {

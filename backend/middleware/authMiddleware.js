@@ -10,30 +10,22 @@ export const protect = async (req, res, next) => {
     req.headers.authorization.startsWith("Bearer")
   ) {
     try {
-      // Lấy token từ header
       token = req.headers.authorization.split(" ")[1];
 
-      // Giải mã token
       const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
 
-      // Kiểm tra xem user có tồn tại không
-      const user = await User.findById(decoded.userId).select("-password");
+      const user = await User.findById(decoded.id).select("-password");
       if (!user) {
         return res.status(401).json({ message: "Người dùng không tồn tại!" });
       }
 
-      req.user = user; // Gán user vào request
+      req.user = user;
       next();
     } catch (error) {
-      console.error("Lỗi khi xác thực token:", error);
-      return res
-        .status(401)
-        .json({ message: "Không có quyền truy cập, Token không hợp lệ!" });
+      return res.status(401).json({ message: "Token không hợp lệ!" });
     }
   } else {
-    return res
-      .status(401)
-      .json({ message: "Không có quyền truy cập, Token không tồn tại!" });
+    return res.status(401).json({ message: "Bạn chưa đăng nhập!" });
   }
 };
 

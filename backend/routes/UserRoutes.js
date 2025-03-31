@@ -8,10 +8,10 @@ import {
   updateUserByAdmin,
   getAllUsers,
   forgotPassword,
-  changePassword,
   getUserOrders,
   resetPasswordPage,
   resetPassword,
+  updatePassword,
 } from "../controller/UserController.js";
 import { protect, admin } from "../middleware/authMiddleware.js";
 
@@ -29,17 +29,26 @@ router.get("/profile", protect, getUserProfile);
 // ✅ Cập nhật hồ sơ cá nhân (cần xác thực)
 router.put("/profile", protect, updateUserProfile);
 
+// ✅ Cập nhật mật khẩu (cần xác thực)
+router.put("/update-password", protect, updatePassword);
+
+// ✅ Lấy danh sách đơn hàng của user (cần xác thực)
+router.get("/order", protect, getUserOrders);
+
+// ✅ Quên mật khẩu
+router.post("/forgot-password", forgotPassword);
+
+// ✅ Reset mật khẩu
+router.get("/reset-password/:token", resetPasswordPage);
+router.post("/reset-password/:token", resetPassword);
+
+// ✅ Lấy danh sách tất cả người dùng (Chỉ Admin)
+router.get("/", protect, admin, getAllUsers);
+
 // ✅ Xóa người dùng (Chỉ Admin)
 router.delete("/:id", protect, admin, deleteUser);
 
 // ✅ Cập nhật thông tin người dùng (Chỉ Admin)
 router.put("/:id", protect, admin, updateUserByAdmin);
 
-// ✅ Lấy danh sách tất cả người dùng (Chỉ Admin)
-router.get("/order", protect, getUserOrders);
-router.post("/forgot-password", forgotPassword);
-router.get("/reset-password/:token", resetPasswordPage);
-router.post("/reset-password/:token", resetPassword);
-router.put("/change-password", protect, changePassword);
-router.get("/", protect, admin, getAllUsers);
 export default router;
