@@ -6,6 +6,8 @@ import cartRoutes from "./CartRoutes.js";
 import categoryRoutes from "./CategoryRoutes.js";
 import uploadRouter from "./UploadRoutes.js"; // ✅ Import API upload ảnh
 import vnpayRoutes from "./vnpayRoutes.js";
+import chatbotRoutes from "./ChatbotRoutes.js"; // ✅ Import API chatbot
+
 const routes = express.Router();
 
 routes.use("/users", userRouter); // ✅ Định tuyến người dùng
@@ -15,4 +17,6 @@ routes.use("/cart", cartRoutes); // ✅ Thêm route giỏ hàng
 routes.use("/categories", categoryRoutes); // ✅ Thêm route danh mục
 routes.use("/upload", uploadRouter); // ✅ Thêm route upload ảnh
 routes.use("/vnpay", vnpayRoutes); // API thanh toán VNPay
+routes.use("/chatbot", chatbotRoutes); //chatbot
+
 export default routes;

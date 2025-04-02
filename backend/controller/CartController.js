@@ -45,24 +45,30 @@ export const addToCart = async (req, res) => {
 // ✅ Lấy giỏ hàng của người dùng
 export const getCart = async (req, res) => {
   try {
+    // Tìm giỏ hàng của người dùng
     const cart = await Cart.findOne({ user: req.user._id }).populate(
-      "cartItems.product",
+      "cartItems.product", // Populating thông tin sản phẩm trong cartItems
       "name price image"
     );
 
+    // Kiểm tra xem giỏ hàng có trống không
     if (!cart || cart.cartItems.length === 0) {
       return res.status(404).json({ message: "Giỏ hàng trống!" });
     }
 
-    // Tính tổng tiền của sản phẩm
-    const itemsPrice = cart.cartItems.reduce(
-      (acc, item) => acc + item.product.price * item.quantity,
-      0
-    );
+    // Tính tổng tiền của sản phẩm trong giỏ
+    let itemsPrice = 0;
+    cart.cartItems.forEach((item) => {
+      if (item.product && item.product.price) {
+        itemsPrice += item.product.price * item.quantity; // Tính tổng tiền cho mỗi sản phẩm
+      }
+    });
+
     const shippingPrice = 30000; // Phí vận chuyển cố định
     const taxPrice = itemsPrice * 0.1; // Thuế 10%
-    const totalPrice = itemsPrice + shippingPrice + taxPrice;
+    const totalPrice = itemsPrice + shippingPrice + taxPrice; // Tổng tiền
 
+    // Trả về giỏ hàng cùng với thông tin tổng tiền
     res.status(200).json({
       cart: {
         _id: cart._id,
@@ -85,6 +91,7 @@ export const getCart = async (req, res) => {
       totalPrice,
     });
   } catch (error) {
+    // Xử lý lỗi nếu có
     res.status(500).json({ message: "Lỗi server!", error: error.message });
   }
 };

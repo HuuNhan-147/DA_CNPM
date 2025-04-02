@@ -290,24 +290,3 @@ export const getReviews = asyncHandler(async (req, res) => {
     res.status(404).json({ message: "Không tìm thấy sản phẩm!" });
   }
 });
-
-// ✅ Tìm kiếm sản phẩm bằng giọng nói
-export const searchProducts = async (req, res) => {
-  try {
-    const { query } = req.body; // Nhận văn bản tìm kiếm
-
-    if (!query) {
-      return res.status(400).json({ message: "Thiếu từ khóa tìm kiếm!" });
-    }
-
-    const products = await Product.find({
-      name: { $regex: query, $options: "i" },
-    });
-
-    res.json(products);
-  } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Lỗi tìm kiếm sản phẩm!", error: error.message });
-  }
-};
