@@ -14,7 +14,9 @@ export const createOrder = async (req, res) => {
       (total, item) => total + item.price * item.quantity,
       0
     );
-    const shippingPrice = itemsPrice > 500 ? 0 : 50; // Miễn phí ship nếu > 500$
+
+    // Cập nhật phí vận chuyển mặc định là 30,000 VND
+    const shippingPrice = 30000; // Default shipping fee
     const taxPrice = itemsPrice * 0.1; // 10% thuế
     const totalPrice = itemsPrice + shippingPrice + taxPrice;
 
