@@ -25,11 +25,10 @@ export const createPayment = async (req, res) => {
     let secretKey = process.env.VNP_HASH_SECRET;
     let vnpUrl = process.env.VNP_URL;
     let returnUrl = process.env.VNP_RETURN_URL;
-    let bankCode = req.body.bankCode;
+    let bankCode = req.body.bankCode || "NCB";
 
     let locale = req.body.language || "vn";
     let currCode = "VND";
-
     // Lấy totalPrice từ đơn hàng
     const order = await Order.findById(orderId);
     if (!order) {
@@ -74,7 +73,7 @@ export const createPayment = async (req, res) => {
 
     redirectUrl.searchParams.append("vnp_SecureHash", signed);
 
-    res.json({ status: "success", paymentUrl: redirectUrl.toString() });
+    res.send(redirectUrl.toString());
   } catch (error) {
     res.status(500).json({ status: "error", message: error.message });
   }

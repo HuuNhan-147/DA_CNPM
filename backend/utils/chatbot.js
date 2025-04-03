@@ -114,7 +114,7 @@ async function askQuestion(question) {
      Nếu khách hàng yêu cầu muốn mua một sản phẩm hãy tìm sản phẩm có tên gần nhất với yêu cầu đó
      Nếu không liên quan, hãy trả lời một cách tự nhiên và thân thiện.
      Hãy trả lời bằng HTML để dễ đọc hơn.
-     Liên kết sản phẩm nên là: http://localhost:5000/api/products/ + id sản phẩm
+     Liên kết sản phẩm nên là: http://localhost:5173/products/ + id sản phẩm
      Liên kết hình ảnh nên là: http://localhost:5000/uploads/ + tên file ảnh
      Liên kết danh sachs sản phẩm nên là: http://localhost:5000/api/products
     `;

@@ -150,3 +150,109 @@ export const updateOrderToDelivered = async (req, res) => {
     res.status(500).json({ message: "Lỗi server!", error: error.message });
   }
 };
+
+export const getUserOrders = async (req, res) => {
+  try {
+    // Kiểm tra xem req.user có tồn tại không
+    if (!req.user) {
+      return res.status(401).json({ message: "Không có quyền truy cập!" });
+    }
+
+    // Lấy tất cả đơn hàng của người dùng từ database
+    const orders = await Order.find({ user: req.user._id })
+      .populate({
+        path: "orderItems.product",
+        select: "name price image", // Lấy thông tin sản phẩm bao gồm cả hình ảnh
+        model: "Product", // Chỉ định model cần populate
+      })
+      .populate("user", "name email")
+      .sort({ createdAt: -1 });
+
+    // Nếu không có đơn hàng nào
+    if (orders.length === 0) {
+      return res.status(404).json({ message: "Không có đơn hàng nào!" });
+    }
+
+    // Xử lý dữ liệu đơn hàng
+    const formattedOrders = orders.map((order) => {
+      // Kiểm tra và cập nhật số lượng nếu sản phẩm trùng nhau
+      const uniqueItems = [];
+      const itemMap = new Map();
+
+      order.orderItems.forEach((item) => {
+        if (item.product && item.product._id) {
+          if (itemMap.has(item.product._id.toString())) {
+            // Nếu sản phẩm đã tồn tại, cập nhật số lượng
+            const existingItem = itemMap.get(item.product._id.toString());
+            existingItem.quantity += item.quantity;
+          } else {
+            // Nếu sản phẩm chưa tồn tại, thêm mới
+            const newItem = {
+              productId: item.product._id,
+              productName: item.product.name,
+              price: item.price,
+              quantity: item.quantity,
+              image: item.product.image,
+            };
+            itemMap.set(item.product._id.toString(), newItem);
+            uniqueItems.push(newItem);
+          }
+        }
+      });
+
+      return {
+        _id: order._id,
+        createdAt: order.createdAt,
+        updatedAt: order.updatedAt,
+        status: order.status,
+        orderItems: uniqueItems,
+        shippingAddress: order.shippingAddress,
+        paymentMethod: order.paymentMethod,
+        shippingPrice: order.shippingPrice,
+        taxPrice: order.taxPrice,
+        totalPrice: order.totalPrice,
+        isPaid: order.isPaid,
+        paidAt: order.paidAt,
+        isDelivered: order.isDelivered,
+        deliveredAt: order.deliveredAt,
+      };
+    });
+
+    res.status(200).json({
+      message: "Lấy danh sách đơn hàng của người dùng thành công!",
+      orders: formattedOrders,
+    });
+  } catch (error) {
+    console.error("Lỗi chi tiết:", error);
+    res.status(500).json({
+      message: "Lỗi server!",
+      error: error.message,
+    });
+  }
+};
+// ✅ Xóa đơn hàng (Admin hoặc chủ sở hữu đơn hàng)
+export const deleteOrder = async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id);
+
+    if (!order) {
+      return res.status(404).json({ message: "Đơn hàng không tồn tại!" });
+    }
+
+    // Kiểm tra quyền xóa: Admin hoặc chủ sở hữu đơn hàng
+    if (
+      req.user._id.toString() !== order.user._id.toString() &&
+      !req.user.isAdmin
+    ) {
+      return res
+        .status(403)
+        .json({ message: "Bạn không có quyền xóa đơn hàng này!" });
+    }
+
+    await order.deleteOne(); // Xóa đơn hàng
+
+    res.status(200).json({ message: "Đơn hàng đã được xóa thành công!" });
+  } catch (error) {
+    res.status(500).json({ message: "Lỗi server!", error: error.message });
+  }
+};
