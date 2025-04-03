@@ -35,11 +35,13 @@ router.put("/update-password", protect, updatePassword);
 // ✅ Lấy danh sách đơn hàng của user (cần xác thực)
 router.get("/order", protect, getUserOrders);
 
-// ✅ Quên mật khẩu
+// ✅ Quên mật khẩu - gửi email để lấy lại mật khẩu
 router.post("/forgot-password", forgotPassword);
 
-// ✅ Reset mật khẩu
+// ✅ Hiển thị trang reset mật khẩu (sử dụng token từ email)
 router.get("/reset-password/:token", resetPasswordPage);
+
+// ✅ Thực hiện reset mật khẩu với token
 router.post("/reset-password/:token", resetPassword);
 
 // ✅ Lấy danh sách tất cả người dùng (Chỉ Admin)

@@ -263,7 +263,7 @@ export const forgotPassword = async (req, res) => {
     user.resetPasswordExpires = Date.now() + 15 * 60 * 1000; // 15 phút
     await user.save();
 
-    const resetURL = `http://localhost:5000/users/reset-password/${resetToken}`;
+    const resetURL = `http://localhost:5173/reset-password/${resetToken}`;
 
     await sendEmail(
       user.email,
