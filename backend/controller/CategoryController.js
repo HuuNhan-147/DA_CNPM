@@ -4,7 +4,7 @@ import Category from "../models/CategoryModel.js";
 // 🔹 API lấy danh sách danh mục
 export const getCategories = asyncHandler(async (req, res) => {
   try {
-    const categories = await Category.find({}, "name"); // Chỉ lấy tên danh mục
+    const categories = await Category.find({}, "name description"); // Chỉ lấy tên danh mục
     res.status(200).json(categories);
   } catch (error) {
     res.status(500).json({ message: "Lỗi server!", error: error.message });
@@ -21,28 +21,39 @@ export const getCategoryById = asyncHandler(async (req, res) => {
 });
 
 // ✅ Thêm danh mục (Chỉ Admin)
+// ✅ Thêm danh mục (Chỉ Admin)
+// ✅ Thêm danh mục (Chỉ Admin)
 export const createCategory = asyncHandler(async (req, res) => {
   const { name, description } = req.body;
 
-  // 🔹 Kiểm tra xem danh mục đã tồn tại chưa
+  // Kiểm tra tên có hợp lệ không
+  if (!name) {
+    return res.status(400).json({ message: "Tên là bắt buộc!" });
+  }
+
+  // Kiểm tra xem danh mục đã tồn tại chưa
   const categoryExists = await Category.findOne({ name });
   if (categoryExists) {
     return res.status(400).json({ message: "Danh mục đã tồn tại!" });
   }
 
-  // 🔹 Lưu đường dẫn ảnh nếu có
-  const imagePath = req.file ? `/uploads/${req.file.filename}` : null;
-
+  // Tạo mới danh mục
   const category = new Category({
     name,
-    description,
-    image: imagePath,
+    description: description || "", // Nếu không có mô tả, mặc định là chuỗi rỗng
   });
 
-  const createdCategory = await category.save();
-  res.status(201).json(createdCategory);
+  try {
+    const createdCategory = await category.save();
+    res.status(201).json(createdCategory);
+  } catch (error) {
+    res
+      .status(500)
+      .json({ message: "Lỗi khi tạo danh mục!", error: error.message });
+  }
 });
 
+// ✅ Cập nhật danh mục (Chỉ Admin)
 // ✅ Cập nhật danh mục (Chỉ Admin)
 export const updateCategory = asyncHandler(async (req, res) => {
   const { name, description } = req.body;
@@ -52,14 +63,9 @@ export const updateCategory = asyncHandler(async (req, res) => {
     return res.status(404).json({ message: "Danh mục không tồn tại!" });
   }
 
-  // 🔹 Nếu có file ảnh mới thì cập nhật
-  if (req.file) {
-    category.image = `/uploads/${req.file.filename}`;
-  }
-
-  // 🔹 Cập nhật thông tin khác
+  // Cập nhật thông tin khác
   category.name = name || category.name;
-  category.description = description || category.description;
+  category.description = description || category.description; // Mô tả không bắt buộc
 
   const updatedCategory = await category.save();
   res.json(updatedCategory);

@@ -12,6 +12,8 @@ import {
   resetPasswordPage,
   resetPassword,
   updatePassword,
+  getUserById,
+  searchUsers,
 } from "../controller/UserController.js";
 import { protect, admin } from "../middleware/authMiddleware.js";
 
@@ -52,5 +54,9 @@ router.delete("/:id", protect, admin, deleteUser);
 
 // ✅ Cập nhật thông tin người dùng (Chỉ Admin)
 router.put("/:id", protect, admin, updateUserByAdmin);
+
+// ✅ Lấy thông tin người dùng theo ID (Chỉ Admin hoặc người dùng chính xác)
+router.get("/search", protect, admin, searchUsers);
+router.get("/:id", protect, admin, getUserById);
 
 export default router;

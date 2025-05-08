@@ -357,3 +357,47 @@ export const updatePassword = async (req, res) => {
 
 //netstat -ano | findstr :5000
 //taskkill /PID 9172 /F
+export const getUserById = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).select(
+      "-password -access_token -refresh_token -createdAt -updatedAt"
+    );
+
+    if (!user) {
+      return res.status(404).json({ message: "Người dùng không tồn tại!" });
+    }
+
+    res.status(200).json(user);
+  } catch (error) {
+    console.error("Lỗi chi tiết:", error);
+    res.status(500).json({
+      message: "Lỗi server!",
+      error: error.message,
+    });
+  }
+};
+
+// Tìm kiếm người dùng theo tên, email hoặc số điện thoại
+export const searchUsers = async (req, res) => {
+  try {
+    const { query } = req.query;
+    if (!query) {
+      return res
+        .status(400)
+        .json({ message: "Từ khóa tìm kiếm không được để trống" });
+    }
+
+    const users = await User.find({
+      $or: [
+        { name: { $regex: query, $options: "i" } },
+        { email: { $regex: query, $options: "i" } },
+        { phone: { $regex: query, $options: "i" } },
+      ],
+    });
+
+    res.status(200).json(users);
+  } catch (error) {
+    console.error(error); // Thêm log lỗi vào console để debug
+    res.status(500).json({ message: "Lỗi server", error: error.message });
+  }
+};

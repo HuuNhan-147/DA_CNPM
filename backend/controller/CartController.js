@@ -45,35 +45,42 @@ export const addToCart = async (req, res) => {
 // ✅ Lấy giỏ hàng của người dùng
 export const getCart = async (req, res) => {
   try {
-    // Tìm giỏ hàng của người dùng
+    // Tìm giỏ hàng của người dùng và populate thông tin sản phẩm
     const cart = await Cart.findOne({ user: req.user._id }).populate(
-      "cartItems.product", // Populating thông tin sản phẩm trong cartItems
+      "cartItems.product",
       "name price image"
     );
 
-    // Kiểm tra xem giỏ hàng có trống không
+    // Kiểm tra xem giỏ hàng có tồn tại và có sản phẩm không
     if (!cart || cart.cartItems.length === 0) {
       return res.status(404).json({ message: "Giỏ hàng trống!" });
     }
 
-    // Tính tổng tiền của sản phẩm trong giỏ
-    let itemsPrice = 0;
-    cart.cartItems.forEach((item) => {
-      if (item.product && item.product.price) {
-        itemsPrice += item.product.price * item.quantity; // Tính tổng tiền cho mỗi sản phẩm
-      }
-    });
+    // Lọc ra các sản phẩm hợp lệ (product không null)
+    const validItems = cart.cartItems.filter((item) => item.product);
 
-    const shippingPrice = 30000; // Phí vận chuyển cố định
-    const taxPrice = itemsPrice * 0.1; // Thuế 10%
-    const totalPrice = itemsPrice + shippingPrice + taxPrice; // Tổng tiền
+    if (validItems.length === 0) {
+      return res
+        .status(404)
+        .json({ message: "Giỏ hàng trống hoặc sản phẩm không còn tồn tại!" });
+    }
 
-    // Trả về giỏ hàng cùng với thông tin tổng tiền
+    // Tính tổng tiền sản phẩm
+    const itemsPrice = validItems.reduce(
+      (total, item) => total + item.product.price * item.quantity,
+      0
+    );
+
+    const shippingPrice = 30000; // Phí vận chuyển
+    const taxPrice = itemsPrice * 0.1; // Thuế
+    const totalPrice = itemsPrice + shippingPrice + taxPrice;
+
+    // Trả về dữ liệu giỏ hàng
     res.status(200).json({
       cart: {
         _id: cart._id,
         user: cart.user,
-        cartItems: cart.cartItems.map((item) => ({
+        cartItems: validItems.map((item) => ({
           product: {
             _id: item.product._id,
             name: item.product.name,
@@ -91,7 +98,6 @@ export const getCart = async (req, res) => {
       totalPrice,
     });
   } catch (error) {
-    // Xử lý lỗi nếu có
     res.status(500).json({ message: "Lỗi server!", error: error.message });
   }
 };
@@ -219,5 +225,32 @@ export const checkout = async (req, res) => {
     res.status(201).json({ message: "Đơn hàng đã được tạo!", order });
   } catch (error) {
     res.status(500).json({ message: "Lỗi server!", error: error.message });
+  }
+};
+export const getCartItemCount = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    // Tìm giỏ hàng của người dùng
+    const cart = await Cart.findOne({ user: userId });
+
+    // Kiểm tra giỏ hàng có tồn tại không
+    if (!cart || cart.cartItems.length === 0) {
+      return res.status(200).json({ count: 0 }); // Nếu giỏ hàng trống thì trả về 0
+    }
+
+    // Tính tổng số lượng sản phẩm trong giỏ
+    const count = cart.cartItems.reduce(
+      (total, item) => total + item.quantity,
+      0
+    );
+
+    // Trả về số lượng sản phẩm trong giỏ
+    res.status(200).json({ count });
+  } catch (error) {
+    res.status(500).json({
+      message: "Lỗi server khi lấy số lượng sản phẩm trong giỏ!",
+      error: error.message,
+    });
   }
 };

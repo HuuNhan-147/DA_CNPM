@@ -50,9 +50,6 @@ export const getProductById = async (req, res) => {
 // 🔹 3. Thêm sản phẩm (Admin)
 export const createProduct = asyncHandler(async (req, res) => {
   try {
-    console.log("🟢 req.body:", req.body);
-    console.log("🟢 req.file:", req.file);
-
     let { name, price, category, rating, countInStock, description } = req.body;
 
     // Chuyển đổi dữ liệu từ form-data

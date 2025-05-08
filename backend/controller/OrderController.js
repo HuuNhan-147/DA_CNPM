@@ -258,3 +258,81 @@ export const deleteOrder = async (req, res) => {
     res.status(500).json({ message: "Lỗi server!", error: error.message });
   }
 };
+export const updateOrderStatus = async (req, res) => {
+  const { isPaid, isDelivered } = req.body; // Lấy trạng thái thanh toán và giao hàng từ body
+
+  try {
+    const order = await Order.findById(req.params.id); // Lấy đơn hàng theo ID
+
+    if (!order) {
+      return res.status(404).json({ message: "Đơn hàng không tồn tại!" });
+    }
+
+    // Cập nhật trạng thái thanh toán (nếu có)
+    if (isPaid !== undefined) {
+      order.isPaid = isPaid;
+      order.paidAt = isPaid ? Date.now() : null; // Cập nhật thời gian thanh toán
+    }
+
+    // Cập nhật trạng thái giao hàng (nếu có)
+    if (isDelivered !== undefined) {
+      order.isDelivered = isDelivered;
+      order.deliveredAt = isDelivered ? Date.now() : null; // Cập nhật thời gian giao hàng
+    }
+
+    const updatedOrder = await order.save(); // Lưu cập nhật
+
+    res
+      .status(200)
+      .json({
+        message: "Cập nhật trạng thái đơn hàng thành công!",
+        order: updatedOrder,
+      });
+  } catch (error) {
+    res.status(500).json({ message: "Lỗi server!", error: error.message });
+  }
+};
+// ✅ Tìm kiếm đơn hàng (Admin)
+export const searchOrders = async (req, res) => {
+  try {
+    const { paid, delivered, userName, startDate, endDate } = req.query;
+
+    // Khởi tạo filter để tìm kiếm
+    let filter = {};
+
+    // Lọc theo trạng thái thanh toán (isPaid)
+    if (paid !== undefined) {
+      filter.isPaid = paid === "true";  // Chuyển "true" thành boolean true
+    }
+
+    // Lọc theo trạng thái giao hàng (isDelivered)
+    if (delivered !== undefined) {
+      filter.isDelivered = delivered === "true";  // Chuyển "true" thành boolean true
+    }
+
+    // Lọc theo tên người dùng (userName)
+    if (userName) {
+      filter["user.name"] = { $regex: userName, $options: "i" };  // Tìm kiếm tên không phân biệt chữ hoa, chữ thường
+    }
+
+    // Lọc theo khoảng thời gian
+    if (startDate && endDate) {
+      filter.createdAt = {
+        $gte: new Date(startDate),  // Từ ngày
+        $lte: new Date(endDate),    // Đến ngày
+      };
+    }
+
+    // Tìm các đơn hàng thỏa mãn điều kiện
+    const orders = await Order.find(filter).populate("user", "name email");
+
+    // Trả về kết quả tìm kiếm
+    res.status(200).json({
+      message: "Tìm kiếm đơn hàng thành công!",
+      orders,
+    });
+  } catch (error) {
+    console.error("Lỗi khi tìm kiếm:", error);
+    res.status(500).json({ message: "Lỗi server!", error: error.message });
+  }
+};
