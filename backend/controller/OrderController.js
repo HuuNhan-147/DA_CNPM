@@ -53,16 +53,18 @@ export const getAllOrders = async (req, res) => {
 
 export const getOrderById = async (req, res) => {
   try {
-    const order = await Order.findById(req.params.id).populate(
-      "user",
-      "name email"
-    );
+    const order = await Order.findById(req.params.id)
+      .populate("user", "name email")
+      .populate({
+        path: "orderItems.product",
+        select: "name image price",
+      });
 
     if (!order) {
       return res.status(404).json({ message: "Đơn hàng không tồn tại!" });
     }
 
-    // Kiểm tra quyền truy cập: Admin hoặc chủ đơn hàng
+    // Kiểm tra quyền truy cập
     if (
       req.user._id.toString() !== order.user._id.toString() &&
       !req.user.isAdmin
@@ -72,7 +74,7 @@ export const getOrderById = async (req, res) => {
         .json({ message: "Bạn không có quyền xem đơn hàng này!" });
     }
 
-    // Xác định trạng thái đơn hàng
+    // Xác định trạng thái
     let status = "Chờ thanh toán";
     if (order.isPaid && order.isDelivered) {
       status = "Đã giao hàng";
@@ -83,6 +85,7 @@ export const getOrderById = async (req, res) => {
     // Chuẩn hóa dữ liệu trả về
     const orderData = {
       id: order._id,
+      orderCode: order.orderCode,  // <== thêm dòng này
       status,
       paymentMethod: order.paymentMethod,
       isPaid: order.isPaid,
@@ -94,9 +97,10 @@ export const getOrderById = async (req, res) => {
       },
       shippingAddress: order.shippingAddress,
       orderItems: order.orderItems.map((item) => ({
-        name: item.name,
+        name: item.product?.name || item.name,
         quantity: item.quantity,
         price: item.price,
+        image: item.product?.image || item.image || "",
       })),
       totalPrice: order.totalPrice,
     };
@@ -282,12 +286,10 @@ export const updateOrderStatus = async (req, res) => {
 
     const updatedOrder = await order.save(); // Lưu cập nhật
 
-    res
-      .status(200)
-      .json({
-        message: "Cập nhật trạng thái đơn hàng thành công!",
-        order: updatedOrder,
-      });
+    res.status(200).json({
+      message: "Cập nhật trạng thái đơn hàng thành công!",
+      order: updatedOrder,
+    });
   } catch (error) {
     res.status(500).json({ message: "Lỗi server!", error: error.message });
   }
@@ -302,24 +304,24 @@ export const searchOrders = async (req, res) => {
 
     // Lọc theo trạng thái thanh toán (isPaid)
     if (paid !== undefined) {
-      filter.isPaid = paid === "true";  // Chuyển "true" thành boolean true
+      filter.isPaid = paid === "true"; // Chuyển "true" thành boolean true
     }
 
     // Lọc theo trạng thái giao hàng (isDelivered)
     if (delivered !== undefined) {
-      filter.isDelivered = delivered === "true";  // Chuyển "true" thành boolean true
+      filter.isDelivered = delivered === "true"; // Chuyển "true" thành boolean true
     }
 
     // Lọc theo tên người dùng (userName)
     if (userName) {
-      filter["user.name"] = { $regex: userName, $options: "i" };  // Tìm kiếm tên không phân biệt chữ hoa, chữ thường
+      filter["user.name"] = { $regex: userName, $options: "i" }; // Tìm kiếm tên không phân biệt chữ hoa, chữ thường
     }
 
     // Lọc theo khoảng thời gian
     if (startDate && endDate) {
       filter.createdAt = {
-        $gte: new Date(startDate),  // Từ ngày
-        $lte: new Date(endDate),    // Đến ngày
+        $gte: new Date(startDate), // Từ ngày
+        $lte: new Date(endDate), // Đến ngày
       };
     }
 

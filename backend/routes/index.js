@@ -8,6 +8,7 @@ import uploadRouter from "./UploadRoutes.js"; // ✅ Import API upload ảnh
 import vnpayRoutes from "./vnpayRoutes.js";
 import chatbotRoutes from "./ChatbotRoutes.js"; // ✅ Import API chatbot
 import DashboardRoutes from "./DashboardRoutes.js"; // ✅ Import API dashboard
+import AdminChatbotRoutes from "./AdminChatbotRoutes.js"; // ✅ Import API chatbot admin
 const routes = express.Router();
 
 routes.use("/users", userRouter); // ✅ Định tuyến người dùng
@@ -19,4 +20,5 @@ routes.use("/upload", uploadRouter); // ✅ Thêm route upload ảnh
 routes.use("/vnpay", vnpayRoutes); // API thanh toán VNPay
 routes.use("/chatbot", chatbotRoutes); //chatbot
 routes.use("/dashboard", DashboardRoutes); // ✅ Thêm route dashboard
+routes.use("/admin-chatbot", AdminChatbotRoutes); // ✅ Thêm route chatbot admin
 export default routes;
