@@ -159,7 +159,7 @@ async function askAdminQuestion(question, token) {
   
   Bạn KHÔNG cần lặp lại toàn bộ dữ liệu. Thay vào đó, hãy chọn lọc và phân tích các dữ liệu nổi bật, đưa ra nhận xét chuyên sâu, xu hướng quan trọng, và gợi ý hành động phù hợp để cải thiện doanh thu, quản lý đơn hàng hoặc phát triển khách hàng.
   
-  Ngữ điệu nên mang tính phân tích, chính xác, chuyên nghiệp và hỗ trợ quyết định.
+  trình bài thành một đoạn văn ngữ điệu nên mang tính phân tích, chính xác, chuyên nghiệp và hỗ trợ quyết định.
   `;
 
     // Gọi AI để lấy câu trả lời phân tích
