@@ -21,8 +21,6 @@ export const getCategoryById = asyncHandler(async (req, res) => {
 });
 
 // ✅ Thêm danh mục (Chỉ Admin)
-// ✅ Thêm danh mục (Chỉ Admin)
-// ✅ Thêm danh mục (Chỉ Admin)
 export const createCategory = asyncHandler(async (req, res) => {
   const { name, description } = req.body;
 

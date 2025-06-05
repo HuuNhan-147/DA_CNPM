@@ -11,7 +11,6 @@ async function askQuestion(question) {
 
     // Lấy danh sách sản phẩm từ database
     const products = await Product.find({}).limit(1000); // Giới hạn 5 sản phẩm
-
     // Tạo HTML cho danh sách sản phẩm
     const productHTML = products
       .map((product) => {
@@ -27,7 +26,7 @@ async function askQuestion(question) {
 
         return `
       <div class="product-card">
-  <img src="${imagePath}" 
+  <img src="${imagePath}" a
     alt="${product.name || "Sản phẩm"}" 
     class="product-image"
     onerror="this.src='http://localhost:5000/uploads/no-image.png'"

@@ -1,5 +1,5 @@
 import Order from "../models/OrderModel.js";
-
+import User from "../models/UserModel.js";
 // ✅ Tạo đơn hàng
 export const createOrder = async (req, res) => {
   try {
@@ -85,7 +85,7 @@ export const getOrderById = async (req, res) => {
     // Chuẩn hóa dữ liệu trả về
     const orderData = {
       id: order._id,
-      orderCode: order.orderCode,  // <== thêm dòng này
+      orderCode: order.orderCode, // <== thêm dòng này
       status,
       paymentMethod: order.paymentMethod,
       isPaid: order.isPaid,
@@ -297,44 +297,58 @@ export const updateOrderStatus = async (req, res) => {
 // ✅ Tìm kiếm đơn hàng (Admin)
 export const searchOrders = async (req, res) => {
   try {
-    const { paid, delivered, userName, startDate, endDate } = req.query;
+    const { query } = req.query; // lấy từ khóa tìm kiếm
 
-    // Khởi tạo filter để tìm kiếm
-    let filter = {};
-
-    // Lọc theo trạng thái thanh toán (isPaid)
-    if (paid !== undefined) {
-      filter.isPaid = paid === "true"; // Chuyển "true" thành boolean true
+    if (!query) {
+      return res
+        .status(400)
+        .json({ message: "Vui lòng nhập thông tin tìm kiếm!" });
     }
 
-    // Lọc theo trạng thái giao hàng (isDelivered)
-    if (delivered !== undefined) {
-      filter.isDelivered = delivered === "true"; // Chuyển "true" thành boolean true
-    }
+    // Tìm đơn hàng theo mã đơn hàng (orderCode)
+    const orders = await Order.find({
+      orderCode: { $regex: query, $options: "i" },
+    }).populate("user", "name email");
 
-    // Lọc theo tên người dùng (userName)
-    if (userName) {
-      filter["user.name"] = { $regex: userName, $options: "i" }; // Tìm kiếm tên không phân biệt chữ hoa, chữ thường
-    }
-
-    // Lọc theo khoảng thời gian
-    if (startDate && endDate) {
-      filter.createdAt = {
-        $gte: new Date(startDate), // Từ ngày
-        $lte: new Date(endDate), // Đến ngày
-      };
-    }
-
-    // Tìm các đơn hàng thỏa mãn điều kiện
-    const orders = await Order.find(filter).populate("user", "name email");
-
-    // Trả về kết quả tìm kiếm
     res.status(200).json({
       message: "Tìm kiếm đơn hàng thành công!",
       orders,
     });
   } catch (error) {
     console.error("Lỗi khi tìm kiếm:", error);
+    res.status(500).json({ message: "Lỗi server!", error: error.message });
+  }
+};
+export const searchOrdersByUserName = async (req, res) => {
+  try {
+    const { name } = req.query;
+
+    if (!name) {
+      return res.status(400).json({ message: "Vui lòng nhập tên khách hàng!" });
+    }
+
+    // Tìm các user có tên chứa từ khóa
+    const users = await User.find({
+      name: { $regex: name, $options: "i" },
+    }).select("_id");
+
+    if (users.length === 0) {
+      return res.status(200).json({ orders: [] }); // Không có user => không có đơn
+    }
+
+    const userIds = users.map((u) => u._id);
+
+    // Tìm đơn hàng theo danh sách userId
+    const orders = await Order.find({
+      user: { $in: userIds },
+    }).populate("user", "name email");
+
+    res.status(200).json({
+      message: "Tìm kiếm đơn hàng theo tên khách hàng thành công!",
+      orders,
+    });
+  } catch (error) {
+    console.error("Lỗi khi tìm kiếm theo tên:", error);
     res.status(500).json({ message: "Lỗi server!", error: error.message });
   }
 };

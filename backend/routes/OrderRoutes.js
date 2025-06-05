@@ -9,6 +9,7 @@ import {
   deleteOrder,
   updateOrderStatus,
   searchOrders,
+  searchOrdersByUserName,
 } from "../controller/OrderController.js";
 import { protect, admin } from "../middleware/authMiddleware.js";
 
@@ -23,6 +24,7 @@ router.get("/", protect, admin, getAllOrders);
 // Route lấy danh sách đơn hàng của người dùng (Chỉ dành cho người dùng đã đăng nhập)
 router.get("/me", protect, getUserOrders);
 router.get("/search", searchOrders);
+router.get("/search-user",searchOrdersByUserName);
 // Route lấy chi tiết đơn hàng (Chỉ dành cho người dùng đã đăng nhập và Admin)
 router.get("/:id", protect, getOrderById);
 
