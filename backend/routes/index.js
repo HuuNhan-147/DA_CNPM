@@ -9,6 +9,7 @@ import vnpayRoutes from "./vnpayRoutes.js";
 import chatbotRoutes from "./ChatbotRoutes.js"; // ✅ Import API chatbot
 import DashboardRoutes from "./DashboardRoutes.js"; // ✅ Import API dashboard
 import AdminChatbotRoutes from "./AdminChatbotRoutes.js"; // ✅ Import API chatbot admin
+import aiAgentRoutes from "./aiAgentRoutes.js";
 const routes = express.Router();
 
 routes.use("/users", userRouter); // ✅ Định tuyến người dùng
@@ -21,4 +22,5 @@ routes.use("/vnpay", vnpayRoutes); // API thanh toán VNPay
 routes.use("/chatbot", chatbotRoutes); //chatbot
 routes.use("/dashboard", DashboardRoutes); // ✅ Thêm route dashboard
 routes.use("/admin-chatbot", AdminChatbotRoutes); // ✅ Thêm route chatbot admin
+routes.use("/ai-agent", aiAgentRoutes);
 export default routes;

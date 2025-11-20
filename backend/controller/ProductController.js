@@ -47,17 +47,16 @@ export const getProductById = async (req, res) => {
   }
 };
 
-// 🔹 3. Thêm sản phẩm (Admin)
 export const createProduct = asyncHandler(async (req, res) => {
   try {
     let { name, price, category, rating, countInStock, description } = req.body;
 
-    // Chuyển đổi dữ liệu từ form-data
+    // Chuyển đổi dữ liệu từ form-data sang số nếu cần
     name = parseFormData(name);
-    price = parseFormData(price);
+    price = parseFloat(parseFormData(price));
     category = parseFormData(category);
-    rating = parseFormData(rating);
-    countInStock = parseFormData(countInStock);
+    rating = parseFloat(parseFormData(rating));
+    countInStock = parseInt(parseFormData(countInStock));
     description = parseFormData(description);
 
     if (
@@ -73,7 +72,6 @@ export const createProduct = asyncHandler(async (req, res) => {
         .json({ message: "Vui lòng nhập đầy đủ thông tin sản phẩm!" });
     }
 
-    // ✅ Kiểm tra danh mục có tồn tại trong database không
     const existingCategory = await Category.findById(category);
     if (!existingCategory) {
       return res.status(400).json({
@@ -81,18 +79,15 @@ export const createProduct = asyncHandler(async (req, res) => {
       });
     }
 
-    // Lưu đường dẫn ảnh (nếu có)
     const imagePath = req.file
       ? `/uploads/${req.file.filename}`
       : "/uploads/default.jpg";
 
-    // ✅ Tạo sản phẩm mới
     const product = new Product({
       name,
       price,
       image: imagePath,
-
-      category: existingCategory._id, // Chỉ lưu ID của danh mục
+      category: existingCategory._id,
       rating,
       countInStock,
       description,
@@ -123,7 +118,7 @@ export const updateProduct = asyncHandler(async (req, res) => {
     // Lấy dữ liệu từ req.body
     let { name, price, category, rating, countInStock, description } = req.body;
 
-    // Chuyển đổi dữ liệu từ form-data nếu có
+    // Cập nhật dữ liệu nếu có
     if (name !== undefined) product.name = parseFormData(name);
     if (price !== undefined) product.price = parseFloat(parseFormData(price));
     if (rating !== undefined)
@@ -133,7 +128,7 @@ export const updateProduct = asyncHandler(async (req, res) => {
     if (description !== undefined)
       product.description = parseFormData(description);
 
-    // Kiểm tra danh mục nếu có
+    // Kiểm tra danh mục
     if (category !== undefined) {
       category = parseFormData(category);
       const existingCategory = await Category.findById(category);
@@ -143,7 +138,7 @@ export const updateProduct = asyncHandler(async (req, res) => {
       product.category = existingCategory._id;
     }
 
-    // Nếu có ảnh mới, cập nhật ảnh
+    // Cập nhật ảnh nếu có
     if (req.file) {
       product.image = `/uploads/${req.file.filename}`;
     }

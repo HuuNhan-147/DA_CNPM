@@ -2,6 +2,7 @@ import express from "express";
 import dotenv from "dotenv";
 import mongoose from "mongoose";
 import routes from "./routes/index.js";
+import { connectRedis, disconnectRedis } from "./config/redis.js";
 import cors from "cors";
 dotenv.config();
 
@@ -27,6 +28,12 @@ mongoose
   .connect(MONGO_URI)
   .then(() => {
     console.log("Connected to MongoDB");
+
+    // Initialize Redis (if configured)
+    connectRedis()
+      .then(() => console.log('Redis initialized'))
+      .catch((err) => console.warn('Redis not initialized:', err.message));
+
     app.listen(PORT, () => {
       console.log(`Server is running on port ${PORT}`);
     });

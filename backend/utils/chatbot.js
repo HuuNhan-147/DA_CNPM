@@ -2,7 +2,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import Product from "../models/ProductModel.js";
 
 // Khởi tạo GoogleGenerativeAI với API key
-const genAI = new GoogleGenerativeAI("AIzaSyB1PFojq35s-GwtD1bSPXb6MxqwCkV6ptg"); // Thay bằng API key thực của bạn
+const genAI = new GoogleGenerativeAI("AIzaSyCLqZ_5C0pqfLBU7xk_1CzRfepjnHAzTlA"); // Thay bằng API key thực của bạn
 
 async function askQuestion(question) {
   try {

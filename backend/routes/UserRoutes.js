@@ -41,7 +41,7 @@ router.get("/order", protect, getUserOrders);
 router.post("/forgot-password", forgotPassword);
 
 // ✅ Hiển thị trang reset mật khẩu (sử dụng token từ email)
-router.get("/reset-password/:token", resetPasswordPage);
+// router.get("/reset-password/:token", resetPasswordPage);
 
 // ✅ Thực hiện reset mật khẩu với token
 router.post("/reset-password/:token", resetPassword);

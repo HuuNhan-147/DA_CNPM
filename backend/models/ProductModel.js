@@ -11,7 +11,7 @@ const reviewSchema = new mongoose.Schema(
 const productSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, unique: true },
-    price: { type: Number, required: true },
+    price: { type: Number, required: true }, // lưu integer VNĐ, ví dụ 38490000
     image: { type: String, required: true },
     category: {
       type: mongoose.Schema.Types.ObjectId, // ✅ Đúng kiểu dữ liệu

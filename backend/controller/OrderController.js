@@ -53,18 +53,32 @@ export const getAllOrders = async (req, res) => {
 
 export const getOrderById = async (req, res) => {
   try {
-    const order = await Order.findById(req.params.id)
-      .populate("user", "name email")
-      .populate({
-        path: "orderItems.product",
-        select: "name image price",
-      });
+    const { id } = req.params; // có thể là _id hoặc orderCode
+    let order;
+
+    // ✅ Nếu id là ObjectId (24 ký tự hex)
+    if (/^[0-9a-fA-F]{24}$/.test(id)) {
+      order = await Order.findById(id)
+        .populate("user", "name email")
+        .populate({
+          path: "orderItems.product",
+          select: "name image price",
+        });
+    } else {
+      // ✅ Nếu không phải ObjectId, tìm theo orderCode
+      order = await Order.findOne({ orderCode: id })
+        .populate("user", "name email")
+        .populate({
+          path: "orderItems.product",
+          select: "name image price",
+        });
+    }
 
     if (!order) {
       return res.status(404).json({ message: "Đơn hàng không tồn tại!" });
     }
 
-    // Kiểm tra quyền truy cập
+    // ✅ Kiểm tra quyền truy cập
     if (
       req.user._id.toString() !== order.user._id.toString() &&
       !req.user.isAdmin
@@ -74,7 +88,7 @@ export const getOrderById = async (req, res) => {
         .json({ message: "Bạn không có quyền xem đơn hàng này!" });
     }
 
-    // Xác định trạng thái
+    // ✅ Xác định trạng thái đơn hàng
     let status = "Chờ thanh toán";
     if (order.isPaid && order.isDelivered) {
       status = "Đã giao hàng";
@@ -82,10 +96,10 @@ export const getOrderById = async (req, res) => {
       status = "Đã thanh toán";
     }
 
-    // Chuẩn hóa dữ liệu trả về
+    // ✅ Chuẩn hóa dữ liệu trả về
     const orderData = {
       id: order._id,
-      orderCode: order.orderCode, // <== thêm dòng này
+      orderCode: order.orderCode,
       status,
       paymentMethod: order.paymentMethod,
       isPaid: order.isPaid,
@@ -109,6 +123,7 @@ export const getOrderById = async (req, res) => {
       .status(200)
       .json({ message: "Lấy đơn hàng thành công!", order: orderData });
   } catch (error) {
+    console.error("❌ Lỗi khi lấy đơn hàng:", error);
     res.status(500).json({ message: "Lỗi server!", error: error.message });
   }
 };
@@ -208,6 +223,7 @@ export const getUserOrders = async (req, res) => {
 
       return {
         _id: order._id,
+        orderCode: order.orderCode, // ✅ THÊM ORDERCODE VÀO ĐÂY
         createdAt: order.createdAt,
         updatedAt: order.updatedAt,
         status: order.status,
