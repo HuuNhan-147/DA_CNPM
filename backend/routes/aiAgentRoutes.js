@@ -1,49 +1,66 @@
 import express from "express";
-import { aiAgent } from "../utils/ai-Agent/index.js";
-import { getContext, updateContext } from "../utils/ai-Agent/contextManager.js";
+import { runAgent } from "../utils/ai-Agent/agentCore.js";
 import { protect } from "../middleware/authMiddleware.js";
-import redisChat from "../services/redisChatService.js";
 
 const router = express.Router();
 
-// Protected agent endpoint: requires valid Bearer token. `protect` sets req.user
 router.post("/", protect, async (req, res) => {
   try {
     const userId = req.user?._id?.toString();
-    const { message } = req.body;
-
-    // Load per-user context (in-memory or Redis depending on contextManager implementation)
-    const context = await getContext(userId);
-
-    // Also load session meta (lastViewedProducts) from Redis and append to context so the LLM
-    // can resolve pronouns like "nó" or ordinal references "con thứ 2".
-    try {
-      const meta = await redisChat.getSessionMeta(userId);
-      if (meta && Array.isArray(meta.lastViewedProducts) && meta.lastViewedProducts.length > 0) {
-        // Build a short textual summary
-        const summary = meta.lastViewedProducts
-          .map((p, i) => `${i + 1}) ${p.name} (id:${p.id}, giá:${p.price || 'N/A'})`)
-          .join('\n');
-
-        // Add as an assistant message so it's included in the LLM context
-        context.push({ role: 'assistant', content: `SESSION_LAST_VIEWED:\n${summary}` });
-      }
-    } catch (e) {
-      console.warn('Could not load session meta for ai-agent:', e.message);
-    }
-
-    // Extract token from header (forward to agent/tools that might need it)
+    const { message, sessionId } = req.body;
     const token = req.headers.authorization?.replace("Bearer ", "") || null;
 
-    const reply = await aiAgent.run(message, context, userId, token);
+    console.log(`📱 Client request:`, { 
+      userId, 
+      message, 
+      sessionId: sessionId || 'none',
+      messageLength: message?.length || 0
+    });
 
-    // Persist context back (in case agent modified it)
-    await updateContext(userId, context);
+    const result = await runAgent(
+      message,
+      [], // context
+      userId,
+      token, 
+      sessionId
+    );
 
-    res.json(reply);
+    // ✅ THÊM DEBUG LOG QUAN TRỌNG
+    console.log(`📱 Agent result from core:`, { 
+      success: result.success,
+      hasPayload: !!result.payload,
+      productCount: result.payload?.products?.length || 0,
+      sessionId: result.sessionId,
+      iterations: result.iterations
+    });
+
+    // ✅ TRẢ VỀ ĐẦY ĐỦ TẤT CẢ DỮ LIỆU
+    res.json({
+      success: result.success,
+      reply: result.reply,
+      sessionId: result.sessionId,
+      requiresAuth: result.requiresAuth,
+      payload: result.payload, // ✅ QUAN TRỌNG: Thêm dòng này
+      iterations: result.iterations, // ✅ Thêm
+      resolvedReference: result.resolvedReference, // ✅ Thêm
+      hasPayload: result.hasPayload, // ✅ Thêm
+      productCount: result.productCount // ✅ Thêm
+    });
+
+    console.log(`📤 Sent to client:`, {
+      success: result.success,
+      hasPayload: !!result.payload,
+      productCount: result.payload?.products?.length || 0
+    });
+
   } catch (error) {
-    console.error('aiAgent route error:', error);
-    res.status(500).json({ error: "AI Agent error" });
+    console.error('❌ AI Agent route error:', error);
+    res.status(500).json({ 
+      success: false,
+      reply: "Xin lỗi, có lỗi xảy ra. Vui lòng thử lại!",
+      sessionId: null,
+      payload: null
+    });
   }
 });
 

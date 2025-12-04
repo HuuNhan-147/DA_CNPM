@@ -1,56 +1,16 @@
-// utils/aiAgent/agentCore.js (FIXED CONTEXT LOADING)
+// utils/aiAgent/agentCore.js
 import axios from "axios";
 import { tools, getToolDeclarations } from "./toolRegistry.js";
 import redisChatService from "../../services/redisChatService.js";
+import { processInput, getSessionSummary } from "./contextManager.js";
+import { normalizeSlang } from "./processors/slangNormalizer.js";
+import SYSTEM_INSTRUCTION from "./promptTemplates.js"; // ✅ IMPORT PROMPT TỪ FILE CHUNG
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_URL =
   "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
-const SYSTEM_INSTRUCTION = `Bạn là E-ComMate - trợ lý mua sắm thông minh cho người Việt.
-
-NHIỆM VỤ CHÍNH:
-- Giúp khách hàng tìm kiếm sản phẩm
-- Thêm sản phẩm vào giỏ hàng
-- Xem giỏ hàng và đơn hàng
-- Trả lời thân thiện, tự nhiên bằng tiếng Việt
-
-QUY TẮC XỬ LÝ "THÊM VÀO GIỎ HÀNG":
-
-1. KHI user nói: "thêm [tên sản phẩm] vào giỏ"
-   → BẮT BUỘC: Gọi search_products(keyword="tên sản phẩm") TRƯỚC
-   → SAU ĐÓ: Dùng productId từ kết quả để gọi add_to_cart
-   → KHÔNG BAO GIỜ hỏi user về productId
-
-2. KHI user nói: "thêm nó vào giỏ" / "thêm cái này vào giỏ" / "thêm vào giỏ"
-   → XEM LỊCH SỬ: Tìm sản phẩm vừa được đề cập gần nhất
-   → Dùng productId của sản phẩm đó để gọi add_to_cart
-   → VÍ DỤ:
-      User: "tư vấn iPhone 17"
-      Bot: "iPhone 17 Pro Max có giá 38.490.000 VNĐ..."
-      User: "thêm nó vào giỏ"
-      → Bot phải nhớ iPhone 17 và thêm vào giỏ
-
-3. LUỒNG CHUẨN:
-   Input: "thêm iPhone 15 vào giỏ"
-   Step 1: search_products(keyword="iPhone 15")
-   Step 2: Nhận kết quả [{id: "abc123", name: "iPhone 15 Pro"}]
-   Step 3: add_to_cart(productId="abc123", quantity=1)
-   Step 4: "Đã thêm iPhone 15 Pro vào giỏ hàng của bạn!"
-
-4. XỬ LÝ SỐ LƯỢNG:
-   - "thêm 3 iPhone" → quantity=3
-   - "thêm nó vào giỏ" → quantity=1
-
-5. NHIỀU SẢN PHẨM:
-   "thêm iPhone và Samsung"
-   → search iPhone → add to cart
-   → search Samsung → add to cart
-
-6. TÌM KIẾM KHÔNG CÓ KẾT QUẢ:
-   "Xin lỗi, không tìm thấy sản phẩm này trong cửa hàng."
-
-HÃY TỰ NHIÊN, THÂN THIỆN VÀ LUÔN HOÀN THÀNH YÊU CẦU!`;
+// ✅ XÓA SYSTEM_INSTRUCTION CŨ - DÙNG IMPORT TỪ promptTemplates.js
 
 /**
  * ✅ MAIN AGENT với Context Loading từ Redis
@@ -69,10 +29,15 @@ export async function runAgent(
     console.log("📝 Session:", sessionId || "will create new");
     console.log("=".repeat(60));
 
+    // Chuẩn hóa từ lóng
+    const normalizedMessage = normalizeSlang(message);
+    console.log(`🔤 Slang normalized: "${message}" → "${normalizedMessage}"`);
+
     // Validate authentication
     const requiresAuth =
-      message.toLowerCase().includes("giỏ") ||
-      message.toLowerCase().includes("đơn hàng");
+      normalizedMessage.toLowerCase().includes("giỏ") ||
+      normalizedMessage.toLowerCase().includes("đơn hàng") ||
+      normalizedMessage.toLowerCase().includes("thêm vào giỏ");
 
     if (requiresAuth && (!userId || !token)) {
       return {
@@ -82,65 +47,112 @@ export async function runAgent(
       };
     }
 
-    // ============================================
-    // ✅ BƯỚC 1: LẤY HOẶC TẠO SESSION + LOAD HISTORY
-    // ============================================
+    // Lấy hoặc tạo session + load history
     let currentSessionId = sessionId;
     let conversationHistory = [];
 
     if (userId) {
-      // Lấy hoặc tạo session
       currentSessionId = await redisChatService.getOrCreateSession(
         userId,
         sessionId
       );
+      console.log(`🔄 Using session: ${currentSessionId}`);
 
-      // ⭐ KEY FIX: Load lịch sử từ Redis (10 messages gần nhất)
       const recentMessages = await redisChatService.getMessages(
         userId,
         currentSessionId,
-        10, // limit
-        0   // offset
+        15,
+        0
       );
 
-      // Convert sang format cho Gemini
       conversationHistory = recentMessages.map((msg) => ({
-        role: msg.role === "assistant" ? "assistant" : "user",
+        role: msg.role === "assistant" ? "model" : "user",
         content: msg.content,
+        _timestamp: msg.timestamp,
+        _functionCalls: msg.functionCalls,
       }));
 
-      console.log(`📚 Loaded ${conversationHistory.length} messages from Redis`);
-      if (conversationHistory.length > 0) {
-        console.log("📖 Recent context:");
-        conversationHistory.slice(-3).forEach((msg, idx) => {
-          console.log(`   [${idx + 1}] ${msg.role}: ${msg.content.substring(0, 80)}...`);
-        });
-      }
-
-      // Merge với context được truyền vào (nếu có)
-      conversationHistory = [...conversationHistory, ...context];
+      console.log(
+        `📚 Loaded ${conversationHistory.length} messages from Redis`
+      );
+    } else {
+      currentSessionId = `anon_${Date.now()}`;
+      console.log(`👻 Anonymous session: ${currentSessionId}`);
     }
 
-    // ============================================
-    // ✅ BƯỚC 2: LƯU MESSAGE USER VÀO REDIS
-    // ============================================
+    // Tiền xử lý user message với context
+    let messageToUse = normalizedMessage;
+    let resolvedReference = null;
+
+    try {
+      const processed = await processInput(
+        normalizedMessage,
+        userId,
+        currentSessionId
+      );
+
+      if (processed && processed.text) {
+        messageToUse = processed.text;
+        console.log(
+          `🔄 Processed input: "${normalizedMessage}" → "${messageToUse}"`
+        );
+      }
+
+      if (processed && processed.resolved) {
+        resolvedReference = processed.resolved;
+        console.log(`🔗 Resolved reference:`, resolvedReference);
+
+        if (
+          resolvedReference.products &&
+          resolvedReference.products.length > 0
+        ) {
+          const refText = `[CONTEXT: User đang đề cập đến ${resolvedReference.products
+            .map((p) => p.name)
+            .join(", ")}]`;
+          conversationHistory.push({ role: "system", content: refText });
+          console.log(`📎 Added context reference: ${refText}`);
+        }
+      }
+    } catch (e) {
+      console.warn("inputProcessor error", e.message);
+    }
+
+    // Lưu message đã xử lý
     if (userId && currentSessionId) {
       await redisChatService.addMessage(
         userId,
         currentSessionId,
         "user",
-        message
+        messageToUse,
+        resolvedReference ? { resolved: resolvedReference } : null
       );
-      console.log(`✅ Saved user message to Redis`);
+      console.log(`✅ Saved processed user message to Redis`);
+    }
+
+    // Thêm session summary
+    if (userId && currentSessionId) {
+      try {
+        const sessionSummary = await getSessionSummary(
+          userId,
+          currentSessionId
+        );
+        if (sessionSummary) {
+          conversationHistory.unshift({
+            role: "system",
+            content: sessionSummary,
+          });
+          console.log("📋 Added session summary to context");
+        }
+      } catch (e) {
+        console.warn("Could not load session summary", e.message);
+      }
     }
 
     // Tạo conversation contents với lịch sử
-    const contents = buildContents(message, conversationHistory);
+    const contents = buildContents(messageToUse, conversationHistory);
     const functionDeclarations = getToolDeclarations();
 
-    // ============================================
-    // ✅ BƯỚC 3: THỰC THI AGENT LOOP
-    // ============================================
+    // Thực thi agent loop
     let response = await callGemini(contents, functionDeclarations);
     let iterationCount = 0;
     const maxIterations = 5;
@@ -148,32 +160,24 @@ export async function runAgent(
 
     while (response.functionCalls && iterationCount < maxIterations) {
       iterationCount++;
-
       console.log(`\n🔄 ITERATION ${iterationCount}:`);
-      console.log(
-        "Functions to call:",
-        response.functionCalls.map(
-          (fc) => `${fc.name}(${JSON.stringify(fc.args)})`
-        )
-      );
 
-      // Execute functions
       const functionResponses = await executeFunctions(
         response.functionCalls,
         userId,
-        token
+        token,
+        currentSessionId
       );
 
-      // Lưu function calls
       allFunctionCalls.push(
         ...response.functionCalls.map((fc, idx) => ({
           name: fc.name,
           args: fc.args,
           result: functionResponses[idx].response,
+          timestamp: new Date().toISOString(),
         }))
       );
 
-      // Update conversation
       contents.push({
         role: "model",
         parts: response.functionCalls.map((fc) => ({
@@ -188,16 +192,148 @@ export async function runAgent(
         })),
       });
 
-      // Get next response
       response = await callGemini(contents, functionDeclarations);
     }
 
     const finalText =
       response.text || "Xin lỗi, tôi không thể xử lý yêu cầu này.";
 
-    // ============================================
-    // ✅ BƯỚC 4: LƯU RESPONSE ASSISTANT VÀO REDIS
-    // ============================================
+    // Build structured payload - Enhanced
+    let assistantPayload = null;
+    try {
+      const products = [];
+
+      for (const fc of allFunctionCalls) {
+        const name = fc.name;
+        const result = fc.result;
+
+        if (!result || !result.success) continue;
+
+        // Xử lý search_products
+        if (name === "search_products" && Array.isArray(result.data)) {
+          for (const p of result.data) {
+            if (p && (p.id || p._id) && (p.name || p.title)) {
+              // Xử lý ảnh
+              let imageUrl =
+                p.image || p.images?.[0] || "/images/placeholder-product.jpg";
+              if (imageUrl && !imageUrl.startsWith("http")) {
+                const cleanPath = imageUrl.startsWith("/")
+                  ? imageUrl.slice(1)
+                  : imageUrl;
+                imageUrl = `https://da-cnpm-backend.onrender.com/${cleanPath}`;
+              }
+
+              // Xử lý category
+              let categoryName = "uncategorized";
+
+              // Ưu tiên 1: categoryName trực tiếp
+              if (p.categoryName && typeof p.categoryName === "string") {
+                categoryName = p.categoryName;
+              }
+              // Ưu tiên 2: category object có name
+              else if (
+                p.category?.name &&
+                typeof p.category.name === "string"
+              ) {
+                categoryName = p.category.name;
+              }
+              // Ưu tiên 3: category là string (không phải ObjectID)
+              else if (typeof p.category === "string") {
+                const isObjectId = /^[0-9a-fA-F]{24}$/.test(p.category);
+                if (!isObjectId && p.category.trim() !== "") {
+                  categoryName = p.category;
+                }
+              }
+
+              products.push({
+                _id: p.id || p._id,
+                name: p.name || p.title,
+                price: p.price || 0,
+                image: imageUrl,
+                category: categoryName,
+                rating: p.rating || 4.5,
+                countInStock: p.countInStock || 10,
+                description:
+                  p.description ||
+                  `${p.name || p.title} - Sản phẩm chất lượng cao`,
+                numReviews: p.numReviews || 0,
+                reviews: p.reviews || [],
+                createdAt: p.createdAt || new Date().toISOString(),
+                updatedAt: p.updatedAt || new Date().toISOString(),
+                quantity: p.quantity || 0,
+              });
+            }
+          }
+        }
+        // Xử lý get_product_detail
+        else if (name === "get_product_detail" && result.data) {
+          const p = result.data;
+
+          // Xử lý ảnh
+          let imageUrl =
+            p.image || p.images?.[0] || "/images/placeholder-product.jpg";
+          if (imageUrl && !imageUrl.startsWith("http")) {
+            const cleanPath = imageUrl.startsWith("/")
+              ? imageUrl.slice(1)
+              : imageUrl;
+            imageUrl = `https://localhost:5000/${cleanPath}`;
+          }
+
+          // Xử lý category
+          let categoryName = "uncategorized";
+
+          if (p.categoryName && typeof p.categoryName === "string") {
+            categoryName = p.categoryName;
+          } else if (p.category?.name && typeof p.category.name === "string") {
+            categoryName = p.category.name;
+          } else if (typeof p.category === "string") {
+            const isObjectId = /^[0-9a-fA-F]{24}$/.test(p.category);
+            if (!isObjectId && p.category.trim() !== "") {
+              categoryName = p.category;
+            }
+          }
+
+          products.push({
+            _id: p.id || p._id,
+            name: p.name || p.title,
+            price: p.price || 0,
+            image: imageUrl,
+            category: categoryName,
+            rating: p.rating || 4.5,
+            countInStock: p.countInStock || 10,
+            description:
+              p.description || `${p.name || p.title} - Sản phẩm chất lượng cao`,
+            numReviews: p.numReviews || 0,
+            reviews: p.reviews || [],
+            createdAt: p.createdAt || new Date().toISOString(),
+            updatedAt: p.updatedAt || new Date().toISOString(),
+            quantity: p.quantity || 0,
+          });
+        }
+        // Xử lý get_cart (giỏ hàng) - KHÔNG thêm products
+        else if (
+          name === "get_cart" &&
+          result.data &&
+          result.message.includes("giỏ hàng")
+        ) {
+          // KHÔNG thêm products từ get_cart vào payload
+        }
+        // Xử lý add_to_cart - KHÔNG thêm products
+        else if (name === "add_to_cart" && result.success) {
+          // KHÔNG thêm products từ add_to_cart vào payload
+        }
+      }
+
+      // GÁN products VÀO assistantPayload
+      if (products.length > 0) {
+        assistantPayload = { products };
+      }
+    } catch (e) {
+      console.warn("Could not build assistantPayload", e.message);
+      assistantPayload = null;
+    }
+
+    // Lưu response vào Redis
     if (userId && currentSessionId) {
       await redisChatService.addMessage(
         userId,
@@ -206,23 +342,21 @@ export async function runAgent(
         finalText,
         allFunctionCalls.length > 0 ? allFunctionCalls : null
       );
-      console.log(`✅ Saved assistant response to Redis`);
     }
 
-    console.log("\n✅ FINAL RESPONSE:", finalText);
-    console.log("Iterations:", iterationCount);
-    console.log("Session ID:", currentSessionId);
-    console.log("=".repeat(60) + "\n");
-
+    // TRẢ VỀ ĐẦY ĐỦ
     return {
       reply: finalText,
       success: true,
       iterations: iterationCount,
       sessionId: currentSessionId,
+      resolvedReference: resolvedReference,
+      payload: assistantPayload,
+      hasPayload: !!assistantPayload,
+      productCount: assistantPayload?.products?.length || 0,
     };
   } catch (error) {
     console.error("\n❌ AGENT ERROR:", error.message);
-
     if (error.response) {
       console.error("API Response:", error.response.data);
     }
@@ -235,76 +369,75 @@ export async function runAgent(
   }
 }
 
-/**
- * ✅ BUILD CONVERSATION CONTENTS với History
- */
 function buildContents(message, conversationHistory) {
-  return [
-    // System instruction
-    {
-      role: "user",
-      parts: [{ text: SYSTEM_INSTRUCTION }],
-    },
-    {
-      role: "model",
-      parts: [
-        {
-          text: "Tôi hiểu rõ! Tôi sẽ luôn nhớ sản phẩm trong lịch sử và tìm kiếm sản phẩm trước khi thêm vào giỏ hàng.",
-        },
-      ],
-    },
-    // ⭐ Previous conversation history
-    ...conversationHistory.map((c) => ({
-      role: c.role === "assistant" ? "model" : "user",
-      parts: [{ text: c.content }],
-    })),
-    // Current message
-    {
-      role: "user",
-      parts: [{ text: message }],
-    },
-  ];
+  const contents = [];
+
+  // System instruction
+  contents.push({
+    role: "user",
+    parts: [{ text: SYSTEM_INSTRUCTION }],
+  });
+  contents.push({
+    role: "model",
+    parts: [
+      {
+        text: "Tôi hiểu rõ! Tôi sẽ luôn nhớ sản phẩm trong lịch sử, tìm kiếm sản phẩm trước khi thêm vào giỏ hàng, và theo dõi context để hiểu các đại từ như 'nó', 'cái này'.",
+      },
+    ],
+  });
+
+  conversationHistory.forEach((msg) => {
+    if (msg.role === "system") {
+      contents.push({ role: "user", parts: [{ text: msg.content }] });
+    } else {
+      contents.push({
+        role: msg.role === "assistant" ? "model" : "user",
+        parts: [{ text: msg.content }],
+      });
+    }
+  });
+
+  contents.push({ role: "user", parts: [{ text: message }] });
+  console.log(`📦 Built ${contents.length} content parts for Gemini`);
+  return contents;
 }
 
-/**
- * ✅ EXECUTE FUNCTIONS
- */
-async function executeFunctions(functionCalls, userId, token) {
+async function executeFunctions(
+  functionCalls,
+  userId,
+  token,
+  sessionId = null
+) {
   return Promise.all(
     functionCalls.map(async (fc) => {
       console.log(`  🛠️ Executing: ${fc.name}`);
 
       try {
-        const params = { ...fc.args, userId, token };
-        const result = await tools[fc.name](params);
+        const params = {
+          ...fc.args,
+          userId,
+          token,
+          sessionId: fc.args?.sessionId || sessionId,
+        };
 
+        const result = await tools[fc.name](params);
         console.log(`  ✅ Success:`, result.message || "OK");
 
         return {
           name: fc.name,
-          response: {
-            success: true,
-            ...result,
-          },
+          response: { success: true, ...result },
         };
       } catch (error) {
         console.error(`  ❌ Error:`, error.message);
-
         return {
           name: fc.name,
-          response: {
-            success: false,
-            error: error.message,
-          },
+          response: { success: false, error: error.message },
         };
       }
     })
   );
 }
 
-/**
- * ✅ CALL GEMINI API với Retry Logic
- */
 async function callGemini(contents, functionDeclarations) {
   const maxRetries = 3;
   const baseDelay = 1000;
@@ -334,7 +467,6 @@ async function callGemini(contents, functionDeclarations) {
         throw new Error("No content in response");
       }
 
-      // Parse function calls
       const functionCalls = content.parts
         ?.filter((part) => part.functionCall)
         .map((part) => ({
@@ -342,7 +474,6 @@ async function callGemini(contents, functionDeclarations) {
           args: part.functionCall.args || {},
         }));
 
-      // Parse text
       const text = content.parts
         ?.filter((part) => part.text)
         .map((part) => part.text)
@@ -356,7 +487,10 @@ async function callGemini(contents, functionDeclarations) {
       const status = err?.response?.status;
       const isRetryable = !status || status >= 500;
 
-      console.warn(`callGemini attempt ${attempt} failed:`, err?.message || err);
+      console.warn(
+        `callGemini attempt ${attempt} failed:`,
+        err?.message || err
+      );
 
       if (attempt < maxRetries && isRetryable) {
         const jitter = Math.floor(Math.random() * 300);
@@ -366,7 +500,10 @@ async function callGemini(contents, functionDeclarations) {
         continue;
       }
 
-      if (status === 503 || err?.response?.data?.error?.status === 'UNAVAILABLE') {
+      if (
+        status === 503 ||
+        err?.response?.data?.error?.status === "UNAVAILABLE"
+      ) {
         return {
           functionCalls: null,
           text: "Hệ thống đang bận. Vui lòng thử lại sau vài phút.",

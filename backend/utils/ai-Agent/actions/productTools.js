@@ -1,8 +1,6 @@
-// utils/aiAgent/actions/productTools.js
 import Product from "../../../models/ProductModel.js";
 import redisChat from "../../../services/redisChatService.js";
 
-// ✅ SỬA TÊN FUNCTION: searchProduct → searchProducts
 export async function searchProducts({
   keyword,
   category,
@@ -10,9 +8,10 @@ export async function searchProducts({
   maxPrice,
   limit = 10,
   userId = null,
+  sessionId = null  // ✅ THÊM sessionId parameter
 }) {
   try {
-    console.log(`🔍 Searching products:`, { keyword, category, limit });
+    console.log(`🔍 Searching products:`, { keyword, category, limit, userId, sessionId });
 
     const query = {};
 
@@ -43,27 +42,28 @@ export async function searchProducts({
     console.log(`✅ Found ${products.length} products for "${keyword}"`);
 
     // Format response
+    const base = process.env.SERVER_BASE_URL || "";
     const productData = products.map((product) => ({
-      id: product._id,
+      id: product._id.toString(),  // ✅ ĐẢM BẢO là string
       name: product.name,
       price: product.price,
-      image: product.image,
+      image: product.image ? (product.image.startsWith('http') ? product.image : `${base}${product.image}`) : null,
       category: product.category,
       brand: product.brand,
       inStock: product.countInStock > 0,
       rating: product.rating,
     }));
 
-    // Persist last viewed products to session if userId is provided
+    // ✅ FIX: Persist last viewed products với sessionId cụ thể
     try {
-      if (userId) {
-        await _saveLastViewed(userId, productData);
+      if (userId && sessionId) {
+        console.log(`💾 Saving ${productData.length} products to session: ${sessionId}`);
+        await _saveLastViewed(userId, sessionId, productData);
+      } else {
+        console.warn(`⚠️ Cannot save last viewed - missing userId or sessionId`);
       }
     } catch (e) {
-      console.warn(
-        "Could not persist last viewed in searchProducts:",
-        e.message
-      );
+      console.warn("Could not persist last viewed in searchProducts:", e.message);
     }
 
     return {
@@ -84,8 +84,7 @@ export async function searchProducts({
 }
 
 // ✅ THÊM DESCRIPTION
-searchProducts.description =
-  "Tìm kiếm sản phẩm theo từ khóa, danh mục, khoảng giá";
+searchProducts.description = "Tìm kiếm sản phẩm theo từ khóa, danh mục, khoảng giá";
 
 export async function getProductDetail({ productId }) {
   try {
@@ -118,20 +117,33 @@ export async function getProductDetail({ productId }) {
 
 getProductDetail.description = "Lấy thông tin chi tiết sản phẩm theo ID";
 
-// Save last viewed product(s) to session meta for follow-up actions (e.g., "thêm con thứ 2 vào giỏ")
-export async function _saveLastViewed(userId, products) {
+// ✅ FIX: Save last viewed products với sessionId cụ thể
+export async function _saveLastViewed(userId, sessionId, products) {
   try {
-    if (!userId) return null;
+    if (!userId || !sessionId) {
+      console.warn(`⚠️ Missing userId or sessionId for saving last viewed`);
+      return null;
+    }
+    
     // store lightweight product info
     const slim = products.map((p) => ({
       id: p.id?.toString ? p.id.toString() : p.id,
       name: p.name,
       price: p.price,
     }));
-    await redisChat.setSessionMeta(userId, null, { lastViewedProducts: slim });
+    
+    console.log(`💾 Saving to Redis: userId=${userId}, sessionId=${sessionId}, products=${slim.length}`);
+    
+    // ✅ FIX: Truyền sessionId cụ thể
+    await redisChat.setSessionMeta(userId, sessionId, { 
+      lastViewedProducts: slim,
+      lastUpdated: new Date().toISOString()
+    });
+    
+    console.log(`✅ Successfully saved ${slim.length} products to session meta`);
     return slim;
   } catch (e) {
-    console.warn("Could not save last viewed products to session:", e.message);
+    console.error("❌ Error saving last viewed products to session:", e.message);
     return null;
   }
 }
