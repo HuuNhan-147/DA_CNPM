@@ -43,7 +43,7 @@ const ProductDetail: React.FC = () => {
           image: passedProduct.image
             ? passedProduct.image.startsWith("http") // nếu đã có http thì giữ nguyên
               ? passedProduct.image
-              : `http://localhost:5000${passedProduct.image}` // nếu thiếu thì thêm host
+              : `https://da-cnpm-backend.onrender.com${passedProduct.image}` // nếu thiếu thì thêm host
             : "http://localhost:5000/uploads/no-image.png", // trường hợp không có ảnh
         };
 
@@ -160,8 +160,8 @@ const ProductDetail: React.FC = () => {
       // ✅ Tạo bản sao sản phẩm với image chỉ giữ relative path
       const productToSend = {
         ...product,
-        image: product.image?.startsWith("http://localhost:5000")
-          ? product.image.replace("http://localhost:5000", "")
+        image: product.image?.startsWith("https://da-cnpm-backend.onrender.com")
+          ? product.image.replace("https://da-cnpm-backend.onrender.com", "")
           : product.image,
       };
 

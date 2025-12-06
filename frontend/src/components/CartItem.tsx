@@ -27,7 +27,7 @@ const CartItem: React.FC<CartItemProps> = ({
     <div className="grid grid-cols-12 p-4 border-b border-gray-200 items-center">
       <div className="col-span-12 md:col-span-5 flex items-center">
         <img
-          src={`http://localhost:5000${item.product.image}`}
+          src={`https://da-cnpm-backend.onrender.com${item.product.image}`}
           alt={item.product.name}
           className="w-20 h-20 object-contain rounded mr-4"
         />

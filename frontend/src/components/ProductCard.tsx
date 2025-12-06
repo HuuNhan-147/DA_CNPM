@@ -52,7 +52,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const handleImageClick = () => {
     // Loại bỏ http://localhost:5000 nếu có
     const cleanedImage =
-      product.image?.replace("http://localhost:5000", "") || product.image;
+      product.image?.replace("https://da-cnpm-backend.onrender.com", "") || product.image;
 
     // Tạo bản sao của product với image đã xử lý
     const productWithoutBaseUrl = {
@@ -67,7 +67,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   };
 
   const imageUrl = product.image
-    ? `http://localhost:5000${product.image}`
+    ? `https://da-cnpm-backend.onrender.com${product.image}`
     : "/images/no-image.png";
 
   const renderStars = () => {

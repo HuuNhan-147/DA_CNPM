@@ -220,7 +220,7 @@ export async function runAgent(
                 const cleanPath = imageUrl.startsWith("/")
                   ? imageUrl.slice(1)
                   : imageUrl;
-                imageUrl = `https://da-cnpm-backend.onrender.com/${cleanPath}`;
+                imageUrl = `https://da-cnpm-backend.onrender.com${cleanPath}`;
               }
 
               // Xử lý category
@@ -276,7 +276,7 @@ export async function runAgent(
             const cleanPath = imageUrl.startsWith("/")
               ? imageUrl.slice(1)
               : imageUrl;
-            imageUrl = `https://localhost:5000/${cleanPath}`;
+            imageUrl = `https://da-cnpm-backend.onrender.com${cleanPath}`;
           }
 
           // Xử lý category

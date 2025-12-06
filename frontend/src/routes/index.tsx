@@ -10,7 +10,6 @@ import CartPage from "../pages/CartPage";
 import ListOrderPage from "../pages/ListOrderPage";
 import PaymentResult from "../pages/PaymentPage";
 import OrderPage from "../pages/OrderPage";
-import Chatbot from "../components/chatbot";
 import ProductDetail from "../components/ProductDetail";
 import Register from "../pages/RegisterPage";
 import ForgotPassword from "../pages/ForgotPassword";
@@ -90,8 +89,7 @@ const AppRoutes = () => {
                       path="/products/search"
                       element={<SearchProduct />}
                     />
-                  </Routes>
-                  <Chatbot />
+                  </Routes>           
                 </AdminLayout>
               }
             />

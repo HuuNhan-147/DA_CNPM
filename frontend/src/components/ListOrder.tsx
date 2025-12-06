@@ -235,7 +235,7 @@ const ListOrder: React.FC = () => {
                         <img
                           src={
                             item.image
-                              ? `http://localhost:5000${item.image}`
+                              ? `https://da-cnpm-backend.onrender.com${item.image}`
                               : "/placeholder-product.jpg"
                           }
                           alt={item.productName}
