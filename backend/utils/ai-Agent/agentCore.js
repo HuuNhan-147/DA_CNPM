@@ -8,12 +8,10 @@ import SYSTEM_INSTRUCTION from "./promptTemplates.js"; // ✅ IMPORT PROMPT TỪ
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
-
-// ✅ XÓA SYSTEM_INSTRUCTION CŨ - DÙNG IMPORT TỪ promptTemplates.js
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent";
 
 /**
- * ✅ MAIN AGENT với Context Loading từ Redis
+ * ✅ MAIN AGENT với Context Loading từ Redis + ENHANCED LOGGING
  */
 export async function runAgent(
   message,
@@ -103,18 +101,18 @@ export async function runAgent(
         console.log(`🔗 Resolved reference:`, resolvedReference);
 
         if (
-          resolvedReference.products &&
-          resolvedReference.products.length > 0
+          resolvedReference &&
+          resolvedReference.success &&
+          resolvedReference.product
         ) {
-          const refText = `[CONTEXT: User đang đề cập đến ${resolvedReference.products
-            .map((p) => p.name)
-            .join(", ")}]`;
+          const product = resolvedReference.product;
+          const refText = `[PRODUCT_CONTEXT: User đang đề cập đến sản phẩm: name="${product.name}", productId="${product.id}", price=${product.price}]`;
           conversationHistory.push({ role: "system", content: refText });
           console.log(`📎 Added context reference: ${refText}`);
         }
       }
     } catch (e) {
-      console.warn("inputProcessor error", e.message);
+      console.warn("⚠️ inputProcessor error:", e.message);
     }
 
     // Lưu message đã xử lý
@@ -144,7 +142,7 @@ export async function runAgent(
           console.log("📋 Added session summary to context");
         }
       } catch (e) {
-        console.warn("Could not load session summary", e.message);
+        console.warn("⚠️ Could not load session summary:", e.message);
       }
     }
 
@@ -152,8 +150,54 @@ export async function runAgent(
     const contents = buildContents(messageToUse, conversationHistory);
     const functionDeclarations = getToolDeclarations();
 
+    // 🔍 LOG BEFORE CALLING GEMINI
+    console.log("\n" + "=".repeat(60));
+    console.log("📤 SENDING TO GEMINI:");
+    console.log(
+      "📊 System Instruction Length:",
+      SYSTEM_INSTRUCTION.length,
+      "chars"
+    );
+    console.log("📊 Total Contents Parts:", contents.length);
+    console.log(
+      "📊 Function Declarations:",
+      functionDeclarations.length,
+      "tools"
+    );
+    console.log("📝 User Message:", messageToUse);
+    console.log(
+      "🔧 Available Tools:",
+      functionDeclarations.map((f) => f.name).join(", ")
+    );
+    console.log("=".repeat(60));
+
     // Thực thi agent loop
     let response = await callGemini(contents, functionDeclarations);
+
+    // 🔍 LOG GEMINI FIRST RESPONSE
+    console.log("\n" + "=".repeat(60));
+    console.log("📥 GEMINI FIRST RESPONSE:");
+    console.log("🤖 Has Function Calls:", !!response.functionCalls);
+    if (response.functionCalls) {
+      console.log(
+        "🔧 Function Calls:",
+        response.functionCalls
+          .map((fc) => `${fc.name}(${JSON.stringify(fc.args)})`)
+          .join(", ")
+      );
+    } else {
+      console.log("⚠️ NO FUNCTION CALLS - Agent will respond with text only");
+    }
+    console.log("💬 Has Text Response:", !!response.text);
+    if (response.text) {
+      console.log(
+        "📝 Text Preview:",
+        response.text.substring(0, 200) +
+          (response.text.length > 200 ? "..." : "")
+      );
+    }
+    console.log("=".repeat(60));
+
     let iterationCount = 0;
     const maxIterations = 5;
     const allFunctionCalls = [];
@@ -193,10 +237,32 @@ export async function runAgent(
       });
 
       response = await callGemini(contents, functionDeclarations);
+
+      // 🔍 LOG SUBSEQUENT RESPONSES
+      console.log(`📥 ITERATION ${iterationCount} RESPONSE:`);
+      console.log("🤖 Has More Function Calls:", !!response.functionCalls);
+      if (response.functionCalls) {
+        console.log(
+          "🔧 Next Functions:",
+          response.functionCalls.map((fc) => fc.name).join(", ")
+        );
+      }
     }
 
     const finalText =
       response.text || "Xin lỗi, tôi không thể xử lý yêu cầu này.";
+
+    // 🔍 LOG FINAL RESULT
+    console.log("\n" + "=".repeat(60));
+    console.log("✅ FINAL RESULT:");
+    console.log("📊 Total Iterations:", iterationCount);
+    console.log("📊 Total Function Calls:", allFunctionCalls.length);
+    console.log(
+      "🔧 Functions Used:",
+      [...new Set(allFunctionCalls.map((fc) => fc.name))].join(", ")
+    );
+    console.log("💬 Final Text Length:", finalText.length, "chars");
+    console.log("=".repeat(60) + "\n");
 
     // Build structured payload - Enhanced
     let assistantPayload = null;
@@ -220,7 +286,7 @@ export async function runAgent(
                 const cleanPath = imageUrl.startsWith("/")
                   ? imageUrl.slice(1)
                   : imageUrl;
-                imageUrl = `https://da-cnpm-backend.onrender.com${cleanPath}`;
+                imageUrl = `https://da-cnpm-backend.onrender.com/${cleanPath}`;
               }
 
               // Xử lý category
@@ -329,7 +395,7 @@ export async function runAgent(
         assistantPayload = { products };
       }
     } catch (e) {
-      console.warn("Could not build assistantPayload", e.message);
+      console.warn("⚠️ Could not build assistantPayload:", e.message);
       assistantPayload = null;
     }
 
@@ -356,10 +422,18 @@ export async function runAgent(
       productCount: assistantPayload?.products?.length || 0,
     };
   } catch (error) {
-    console.error("\n❌ AGENT ERROR:", error.message);
+    console.error("\n" + "=".repeat(60));
+    console.error("❌ AGENT ERROR:");
+    console.error("📛 Error Message:", error.message);
+    console.error("📛 Error Stack:", error.stack);
     if (error.response) {
-      console.error("API Response:", error.response.data);
+      console.error("📛 API Response Status:", error.response.status);
+      console.error(
+        "📛 API Response Data:",
+        JSON.stringify(error.response.data, null, 2)
+      );
     }
+    console.error("=".repeat(60) + "\n");
 
     return {
       reply: "Xin lỗi, hệ thống đang gặp sự cố. Vui lòng thử lại sau! 🙏",
@@ -381,7 +455,7 @@ function buildContents(message, conversationHistory) {
     role: "model",
     parts: [
       {
-        text: "Tôi hiểu rõ! Tôi sẽ luôn nhớ sản phẩm trong lịch sử, tìm kiếm sản phẩm trước khi thêm vào giỏ hàng, và theo dõi context để hiểu các đại từ như 'nó', 'cái này'.",
+        text: "Tôi hiểu rõ! Tôi sẽ thực hiện các CRITICAL RULES ngay lập tức: Gọi search_products khi user tìm sản phẩm, gọi get_cart() trước khi tạo đơn hàng, thực hiện quy trình tự động không chờ đợi.",
       },
     ],
   });
@@ -411,6 +485,7 @@ async function executeFunctions(
   return Promise.all(
     functionCalls.map(async (fc) => {
       console.log(`  🛠️ Executing: ${fc.name}`);
+      console.log(`  📋 Args:`, JSON.stringify(fc.args, null, 2));
 
       try {
         const params = {
@@ -420,15 +495,23 @@ async function executeFunctions(
           sessionId: fc.args?.sessionId || sessionId,
         };
 
+        const startTime = Date.now();
         const result = await tools[fc.name](params);
-        console.log(`  ✅ Success:`, result.message || "OK");
+        const duration = Date.now() - startTime;
+
+        console.log(`  ✅ Success (${duration}ms):`, result.message || "OK");
+        console.log(
+          `  📊 Result:`,
+          JSON.stringify(result, null, 2).substring(0, 500) + "..."
+        );
 
         return {
           name: fc.name,
           response: { success: true, ...result },
         };
       } catch (error) {
-        console.error(`  ❌ Error:`, error.message);
+        console.error(`  ❌ Error in ${fc.name}:`, error.message);
+        console.error(`  📛 Error Stack:`, error.stack);
         return {
           name: fc.name,
           response: { success: false, error: error.message },
@@ -444,6 +527,10 @@ async function callGemini(contents, functionDeclarations) {
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
+      console.log(
+        `🔌 Calling Gemini API (attempt ${attempt}/${maxRetries})...`
+      );
+
       const response = await axios.post(
         `${GEMINI_URL}?key=${GEMINI_API_KEY}`,
         {
@@ -464,6 +551,11 @@ async function callGemini(contents, functionDeclarations) {
       const content = candidate?.content;
 
       if (!content) {
+        console.error("❌ No content in Gemini response");
+        console.error(
+          "📛 Full response:",
+          JSON.stringify(response.data, null, 2)
+        );
         throw new Error("No content in response");
       }
 
@@ -479,6 +571,8 @@ async function callGemini(contents, functionDeclarations) {
         .map((part) => part.text)
         .join("\n");
 
+      console.log(`✅ Gemini responded successfully`);
+
       return {
         functionCalls: functionCalls?.length > 0 ? functionCalls : null,
         text: text || null,
@@ -488,14 +582,21 @@ async function callGemini(contents, functionDeclarations) {
       const isRetryable = !status || status >= 500;
 
       console.warn(
-        `callGemini attempt ${attempt} failed:`,
+        `⚠️ callGemini attempt ${attempt} failed:`,
         err?.message || err
       );
+
+      if (err?.response?.data) {
+        console.error(
+          "📛 Gemini Error Response:",
+          JSON.stringify(err.response.data, null, 2)
+        );
+      }
 
       if (attempt < maxRetries && isRetryable) {
         const jitter = Math.floor(Math.random() * 300);
         const delay = baseDelay * Math.pow(2, attempt - 1) + jitter;
-        console.log(`Retrying in ${delay}ms (${attempt + 1}/${maxRetries})`);
+        console.log(`🔄 Retrying in ${delay}ms (${attempt + 1}/${maxRetries})`);
         await new Promise((r) => setTimeout(r, delay));
         continue;
       }

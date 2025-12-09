@@ -641,12 +641,6 @@ Bạn có muốn:
 {
   "buttons": [
     {
-      "label": "Thanh toán ngay",
-      "action": "navigate",
-      "url": "/payment/ORD123456",
-      "style": "primary"
-    },
-    {
       "label": "Xem đơn hàng",
       "action": "orders",
       "style": "secondary"

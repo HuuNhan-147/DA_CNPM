@@ -9,7 +9,7 @@ import ContactInfo from "../components/Header/ContactInfo";
 import CartButton from "../components/Header/CartButton";
 import OrdersButton from "../components/Header/OrdersButton";
 import AuthButtons from "../components/Header/AuthButtons";
-
+import logo from "../assets/logo.png";
 const Header = () => {
   const { user, logout, token } = useAuth();
   const navigate = useNavigate();
@@ -125,9 +125,16 @@ const Header = () => {
   return (
     <header className="bg-gradient-to-r from-gray-800 to-gray-900 shadow-sm sticky top-0 z-50">
       <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-        <div className="text-3xl font-bold text-white">
-          <Link to="/">E-ComMate-Store</Link>
-        </div>
+        <div className="flex items-center space-x-3">
+  <Link to="/" className="flex items-center space-x-2">
+    <img
+      src={logo}
+      alt="Logo"
+      className="w-10 h-10 object-cover rounded-md"
+    />
+    <span className="text-3xl font-bold text-white">E-ComMate-Store</span>
+  </Link>
+</div>
 
         <MainNav onViewProducts={handleViewProducts} />
 

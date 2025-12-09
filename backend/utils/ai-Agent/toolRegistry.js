@@ -35,7 +35,7 @@ export function getToolDeclarations() {
   return [
     {
       name: "search_products",
-      description: "Tìm kiếm sản phẩm theo từ khóa. LUÔN GỌI FUNCTION NÀY TRƯỚC khi thêm sản phẩm vào giỏ để lấy productId. Ví dụ: user nói 'thêm iPhone vào giỏ' thì gọi search_products(keyword='iPhone') trước.",
+      description: "🔍 BẮT BUỘC gọi tool này KHI NÀO: (1) User muốn TÌM/SEARCH sản phẩm, (2) User hỏi về sản phẩm cụ thể, (3) TRƯỚC KHI thêm sản phẩm vào giỏ. Ví dụ trigger: 'tìm iPhone', 'có iPhone không', 'xem điện thoại', 'thêm iPhone vào giỏ'.",
       parameters: {
         type: "object",
         properties: {
