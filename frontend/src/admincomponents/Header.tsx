@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import {
-  User,
   LogOut,
   ShieldCheck,
   Edit,
@@ -11,27 +10,26 @@ import {
   Users,
   ShoppingCart,
   Key,
-  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { updateUserProfile } from "../api/UserApi";
 
 const Sidebar = () => {
   const { user, logout, token } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [showProfile, setShowProfile] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [profileData, setProfileData] = useState({
     name: user?.name || "",
     phone: user?.phone || "",
   });
-  const [tokenExpired, setTokenExpired] = useState(false);
 
   const handleLogout = () => {
     if (window.confirm("Bạn có chắc chắn muốn đăng xuất không?")) {
       logout();
-      alert("Bạn đã đăng xuất thành công!");
       navigate("/login");
     }
   };
@@ -46,208 +44,158 @@ const Sidebar = () => {
     setProfileData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleAutoLogout = (message: string) => {
-    logout();
-    setTokenExpired(true);
-    alert(message);
-    navigate("/login");
-  };
-
   const handleSaveProfile = async () => {
     try {
-      if (!token) {
-        handleAutoLogout(
-          "Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại."
-        );
-        return;
-      }
-
-      const updatedUser = await updateUserProfile(profileData, token);
+      if (!token) return;
+      await updateUserProfile(profileData, token);
       alert("Cập nhật thông tin thành công!");
       setIsEditing(false);
     } catch (error) {
       console.error("Lỗi khi cập nhật thông tin người dùng:", error);
-      alert("Cập nhật thông tin thất bại. Vui lòng thử lại sau.");
+      alert("Cập nhật thông tin thất bại.");
     }
   };
 
-  const handleChangePassword = () => {
-    navigate("/change-password");
-    setShowProfile(false);
-  };
-
-  // Danh sách các mục điều hướng với icon tương ứng
   const navItems = [
-    { path: "/admin", name: "Trang chủ", icon: <Home size={18} /> },
-    {
-      path: "/admin/products",
-      name: "Quản lý sản phẩm",
-      icon: <Package size={18} />,
-    },
-    {
-      path: "/admin/categories",
-      name: "Quản lý danh mục",
-      icon: <List size={18} />,
-    },
-    {
-      path: "/admin/users",
-      name: "Quản lý người dùng",
-      icon: <Users size={18} />,
-    },
-    {
-      path: "/admin/orders",
-      name: "Quản lý đơn hàng",
-      icon: <ShoppingCart size={18} />,
-    },
+    { path: "/admin", name: "Trang chủ", icon: <Home size={20} /> },
+    { path: "/admin/products", name: "Sản phẩm", icon: <Package size={20} /> },
+    { path: "/admin/categories", name: "Danh mục", icon: <List size={20} /> },
+    { path: "/admin/users", name: "Người dùng", icon: <Users size={20} /> },
+    { path: "/admin/orders", name: "Đơn hàng", icon: <ShoppingCart size={20} /> },
   ];
 
   return (
-    <div className="fixed left-0 top-0 h-full w-64 bg-gradient-to-b from-gray-800 to-gray-900 shadow-sm z-50 flex flex-col">
-      {/* Logo */}
-      <div className="text-2xl font-bold text-white p-4 border-b border-gray-700">
-        <Link to="/admin">NodeX-Store</Link>
+    <div className="fixed left-0 top-0 h-full w-64 bg-[#111827] text-gray-300 flex flex-col shadow-2xl z-50 font-sans">
+      {/* Branding */}
+      <div className="h-16 flex items-center px-6 border-b border-gray-800 bg-[#0f1523]">
+        <div className="flex items-center space-x-2 text-indigo-500">
+           <div className="p-1.5 bg-indigo-500/10 rounded-lg">
+             <ShieldCheck size={24} />
+           </div>
+           <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">
+             NodeX
+           </span>
+        </div>
       </div>
 
-      {/* Menu chính với icon */}
-      <nav className="flex-1 overflow-y-auto">
-        <ul className="space-y-1 p-2">
-          {navItems.map((item) => (
-            <li key={item.path}>
-              <Link
-                to={item.path}
-                className="flex items-center text-white hover:bg-gray-700 rounded-md p-3 transition"
-              >
-                <span className="mr-3">{item.icon}</span>
-                {item.name}
-              </Link>
-            </li>
-          ))}
-        </ul>
+      {/* Navigation */}
+      <nav className="flex-1 overflow-y-auto py-6 space-y-1 px-3">
+        {navItems.map((item) => {
+          const isActive = location.pathname === item.path;
+          return (
+            <Link
+              key={item.path}
+              to={item.path}
+              className={`group flex items-center px-3 py-3 rounded-xl transition-all duration-200 ${
+                isActive
+                  ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/20"
+                  : "hover:bg-gray-800 hover:text-white"
+              }`}
+            >
+              <span className={`transition-colors ${isActive ? "text-white" : "text-gray-400 group-hover:text-indigo-400"}`}>
+                {item.icon}
+              </span>
+              <span className="ml-3 font-medium text-sm">{item.name}</span>
+              {isActive && <ChevronRight size={16} className="ml-auto opacity-70" />}
+            </Link>
+          );
+        })}
       </nav>
 
-      {/* Tài khoản người dùng */}
-      <div className="p-4 border-t border-gray-700">
+      {/* User Section */}
+      <div className="p-4 border-t border-gray-800 bg-[#0f1523]">
         {user ? (
           <div className="relative">
-            {/* Avatar & Tên */}
             <button
               onClick={handleToggleProfile}
-              className="w-full flex items-center space-x-3 text-white hover:bg-gray-700 rounded-md p-3 transition"
+              className="w-full flex items-center p-2 rounded-lg hover:bg-gray-800 transition-colors group"
             >
-              <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-white">
+              <div className="h-10 w-10 rounded-full bg-indigo-600/20 text-indigo-400 flex items-center justify-center font-bold text-lg border border-indigo-600/30">
                 {user.name?.charAt(0).toUpperCase()}
               </div>
-              <span className="truncate">{user.name}</span>
-              {user.isAdmin && (
-                <ShieldCheck className="h-4 w-4 text-yellow-400 ml-auto" />
-              )}
+              <div className="ml-3 text-left overflow-hidden">
+                <p className="text-sm font-semibold text-white truncate group-hover:text-indigo-400 transition-colors">
+                  {user.name}
+                </p>
+                <p className="text-xs text-gray-500 truncate">{user.email}</p>
+              </div>
             </button>
 
-            {/* Thông tin cá nhân */}
+            {/* Profile Popover */}
             {showProfile && (
-              <div className="absolute bottom-full left-0 mb-2 w-full bg-white rounded-lg shadow-xl overflow-hidden z-50 border border-gray-200">
-                <div className="p-4 bg-gray-800 text-white flex justify-between items-center">
-                  <h3 className="font-semibold text-lg">Thông tin tài khoản</h3>
-                  <button
-                    onClick={handleToggleProfile}
-                    className="text-gray-300 hover:text-white"
-                  >
-                    <X className="h-5 w-5" />
+              <div className="absolute bottom-full left-0 mb-3 w-72 bg-white rounded-2xl shadow-2xl overflow-hidden z-50 border border-gray-100 ring-1 ring-black/5 animate-in slide-in-from-bottom-2 fade-in duration-200">
+                <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-4 text-white flex justify-between items-start">
+                  <div>
+                    <h3 className="font-bold text-lg">{user.name}</h3>
+                    <p className="text-xs text-indigo-100 opacity-90">{user.email}</p>
+                  </div>
+                  <button onClick={() => setShowProfile(false)} className="text-white/70 hover:text-white transition">
+                    <X size={18} />
                   </button>
                 </div>
 
-                <div className="p-4">
+                <div className="p-4 bg-white text-gray-800">
                   {isEditing ? (
-                    <div className="space-y-3">
+                    <div className="space-y-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Tên
-                        </label>
+                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Tên hiển thị</label>
                         <input
                           type="text"
                           name="name"
                           value={profileData.name}
                           onChange={handleInputChange}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          className="mt-1 w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/50 text-sm"
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Email
-                        </label>
-                        <input
-                          type="email"
-                          value={user.email}
-                          disabled
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100 cursor-not-allowed"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Điện thoại
-                        </label>
+                        <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Số điện thoại</label>
                         <input
                           type="tel"
                           name="phone"
                           value={profileData.phone}
                           onChange={handleInputChange}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          className="mt-1 w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/50 text-sm"
                         />
                       </div>
-
-                      <div className="flex justify-end space-x-2 pt-2">
+                      <div className="flex gap-2 pt-2">
                         <button
                           onClick={() => setIsEditing(false)}
-                          className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-md transition"
+                          className="flex-1 px-3 py-2 text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition"
                         >
                           Hủy
                         </button>
                         <button
                           onClick={handleSaveProfile}
-                          className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition"
+                          className="flex-1 px-3 py-2 text-sm text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg font-medium transition shadow-sm"
                         >
-                          Lưu thay đổi
+                          Lưu
                         </button>
                       </div>
                     </div>
                   ) : (
-                    <div className="space-y-3">
-                      <div className="flex items-center space-x-3">
-                        <div className="h-12 w-12 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-xl">
-                          {user.name?.charAt(0).toUpperCase()}
-                        </div>
-                        <div>
-                          <h4 className="font-semibold">{user.name}</h4>
-                          <p className="text-sm text-gray-600">{user.email}</p>
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <button
-                          onClick={handleChangePassword}
-                          className="w-full flex items-center justify-center px-3 py-2 text-sm bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 transition"
-                        >
-                          <Key className="h-4 w-4 mr-2" />
-                          Đổi mật khẩu
-                        </button>
-
-                        <div className="flex justify-between pt-2">
-                          <button
-                            onClick={handleLogout}
-                            className="flex items-center px-3 py-1 text-sm text-red-600 hover:bg-red-50 rounded-md transition"
-                          >
-                            <LogOut className="h-4 w-4 mr-1" />
-                            Đăng xuất
-                          </button>
-                          <button
-                            onClick={() => setIsEditing(true)}
-                            className="flex items-center px-3 py-1 text-sm bg-indigo-50 text-indigo-600 rounded-md hover:bg-indigo-100 transition"
-                          >
-                            <Edit className="h-4 w-4 mr-1" />
-                            Cập nhật
-                          </button>
-                        </div>
-                      </div>
+                    <div className="space-y-1">
+                      <button
+                        onClick={() => navigate("/change-password")}
+                        className="w-full flex items-center px-3 py-2.5 text-sm text-gray-700 hover:bg-indigo-50 hover:text-indigo-700 rounded-lg transition"
+                      >
+                        <Key size={16} className="mr-3" />
+                        Đổi mật khẩu
+                      </button>
+                      <button
+                        onClick={() => setIsEditing(true)}
+                        className="w-full flex items-center px-3 py-2.5 text-sm text-gray-700 hover:bg-indigo-50 hover:text-indigo-700 rounded-lg transition"
+                      >
+                        <Edit size={16} className="mr-3" />
+                        Cập nhật thông tin
+                      </button>
+                      <div className="h-px bg-gray-100 my-2"></div>
+                      <button
+                        onClick={handleLogout}
+                        className="w-full flex items-center px-3 py-2.5 text-sm text-red-600 hover:bg-red-50 rounded-lg transition"
+                      >
+                        <LogOut size={16} className="mr-3" />
+                        Đăng xuất
+                      </button>
                     </div>
                   )}
                 </div>
@@ -257,9 +205,8 @@ const Sidebar = () => {
         ) : (
           <Link
             to="/login"
-            className="flex items-center text-white hover:bg-gray-700 rounded-md p-3 transition"
+            className="flex items-center justify-center w-full px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition font-medium"
           >
-            <User className="h-5 w-5 mr-3" />
             Đăng nhập
           </Link>
         )}

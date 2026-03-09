@@ -8,6 +8,13 @@ export interface IReview {
   updatedAt: string; // Ngày cập nhật đánh giá
 }
 
+export interface ISpecification {
+  key: string;
+  value: string;
+  unit?: string;
+  group?: string;
+}
+
 // Định nghĩa kiểu cho Product (sản phẩm)
 export interface IProduct {
   _id: string; // ID của sản phẩm (ObjectId)
@@ -18,6 +25,7 @@ export interface IProduct {
   rating: number; // Điểm đánh giá trung bình
   countInStock: number; // Số lượng sản phẩm trong kho
   description: string; // Mô tả sản phẩm
+  specifications: ISpecification[]; // Thông số kỹ thuật
   numReviews: number; // Số lượng đánh giá
   reviews: IReview[]; // Danh sách đánh giá
   createdAt: string; // Ngày tạo sản phẩm

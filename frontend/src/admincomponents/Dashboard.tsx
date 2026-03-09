@@ -179,10 +179,14 @@ const Dashboard: React.FC = () => {
                 className="flex items-center space-x-4 p-3 hover:bg-gray-50 rounded-lg transition-colors"
               >
                 <img
-                  src={`http://localhost:5000${product.image}`}
-                  alt={product.name}
-                  className="w-16 h-16 object-cover rounded-lg"
-                />
+  src={product.image || "/images/no-image.png"}
+  alt={product.name}
+  className="w-16 h-16 object-cover rounded-lg"
+  onError={(e) => {
+    (e.currentTarget as HTMLImageElement).src = "/images/no-image.png";
+  }}
+/>
+
                 <div>
                   <p className="font-semibold text-gray-800">{product.name}</p>
                   <p className="text-sm text-gray-500">

@@ -320,7 +320,7 @@ const CreateOrderPage: React.FC = () => {
                           src={
     product.image?.startsWith("http://") || product.image?.startsWith("https://")
       ? product.image
-      : `https://da-cnpm-backend.onrender.com${product.image}`
+      : `http://localhost:5000${product.image}`
   }
                         alt={product.name}
                         className="w-16 h-16 rounded-md object-cover"
@@ -346,7 +346,7 @@ const CreateOrderPage: React.FC = () => {
                     >
                       <div className="flex-shrink-0">
                         <img
-                          src={`https://da-cnpm-backend.onrender.com${prod.image}`}
+                          src={`http://localhost:5000${prod.image}`}
                           alt={prod.name}
                           className="w-16 h-16 rounded-md object-cover"
                         />

@@ -1,26 +1,31 @@
 import Product from "../models/ProductModel.js";
-import asyncHandler from "express-async-handler";
 import Category from "../models/CategoryModel.js";
+import asyncHandler from "express-async-handler";
+
+/* ======================
+   UTILS
+====================== */
 const parseFormData = (data) => {
   if (typeof data === "string") {
-    data = data.replace(/^"|"$/g, ""); // Xóa dấu `"`
-    if (!isNaN(data)) return Number(data); // Chuyển sang số nếu có thể
+    data = data.replace(/^"|"$/g, "");
+    if (!isNaN(data)) return Number(data);
   }
   return data;
 };
 
-// 🔹 1. Lấy tất cả sản phẩm
+/* ======================
+   1. GET ALL PRODUCTS
+====================== */
 export const getAllProducts = async (req, res) => {
   try {
     const products = await Product.find().populate("category", "name");
-    // "category" là khóa liên kết, "name" là trường cần lấy từ Category
 
     const updatedProducts = products.map((product) => ({
       ...product._doc,
-      category: product.category ? product.category.name : "Không có danh mục", // Kiểm tra category trước khi truy cập name
-      image: product.image
-        ? `${req.protocol}://${req.get("host")}${product.image}`
-        : "",
+      category: product.category
+        ? product.category.name
+        : "Không có danh mục",
+      image: product.image || "", // ✅ Cloudinary URL
     }));
 
     res.status(200).json(updatedProducts);
@@ -29,256 +34,232 @@ export const getAllProducts = async (req, res) => {
   }
 };
 
-// 🔹 2. Lấy sản phẩm theo ID
+/* ======================
+   2. GET PRODUCT BY ID
+====================== */
 export const getProductById = async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id);
+    const product = await Product.findById(req.params.id)
+      .populate("category", "name");
+
     if (!product) {
       return res.status(404).json({ message: "Sản phẩm không tồn tại!" });
     }
-
-    product.image = product.image
-      ? `${req.protocol}://${req.get("host")}${product.image}`
-      : "";
-
-    res.status(200).json(product);
-  } catch (error) {
-    res.status(500).json({ message: "Lỗi server!", error: error.message });
-  }
-};
-
-export const createProduct = asyncHandler(async (req, res) => {
-  try {
-    let { name, price, category, rating, countInStock, description } = req.body;
-
-    // Chuyển đổi dữ liệu từ form-data sang số nếu cần
-    name = parseFormData(name);
-    price = parseFloat(parseFormData(price));
-    category = parseFormData(category);
-    rating = parseFloat(parseFormData(rating));
-    countInStock = parseInt(parseFormData(countInStock));
-    description = parseFormData(description);
-
-    if (
-      !name ||
-      isNaN(price) ||
-      !category ||
-      isNaN(rating) ||
-      isNaN(countInStock) ||
-      !description
-    ) {
-      return res
-        .status(400)
-        .json({ message: "Vui lòng nhập đầy đủ thông tin sản phẩm!" });
-    }
-
-    const existingCategory = await Category.findById(category);
-    if (!existingCategory) {
-      return res.status(400).json({
-        message: "Danh mục không hợp lệ! Vui lòng chọn danh mục có sẵn.",
-      });
-    }
-
-    const imagePath = req.file
-      ? `/uploads/${req.file.filename}`
-      : "/uploads/default.jpg";
-
-    const product = new Product({
-      name,
-      price,
-      image: imagePath,
-      category: existingCategory._id,
-      rating,
-      countInStock,
-      description,
-    });
-
-    const savedProduct = await product.save();
-
-    res.status(201).json({
-      message: "Sản phẩm đã được thêm thành công!",
-      product: {
-        ...savedProduct._doc,
-        image: `${req.protocol}://${req.get("host")}${savedProduct.image}`,
-      },
-    });
-  } catch (error) {
-    res.status(500).json({ message: "Lỗi server!", error: error.message });
-  }
-});
-
-// 🔹 4. Cập nhật sản phẩm (Admin)
-export const updateProduct = asyncHandler(async (req, res) => {
-  try {
-    const product = await Product.findById(req.params.id);
-    if (!product) {
-      return res.status(404).json({ message: "Sản phẩm không tồn tại!" });
-    }
-
-    // Lấy dữ liệu từ req.body
-    let { name, price, category, rating, countInStock, description } = req.body;
-
-    // Cập nhật dữ liệu nếu có
-    if (name !== undefined) product.name = parseFormData(name);
-    if (price !== undefined) product.price = parseFloat(parseFormData(price));
-    if (rating !== undefined)
-      product.rating = parseFloat(parseFormData(rating));
-    if (countInStock !== undefined)
-      product.countInStock = parseInt(parseFormData(countInStock));
-    if (description !== undefined)
-      product.description = parseFormData(description);
-
-    // Kiểm tra danh mục
-    if (category !== undefined) {
-      category = parseFormData(category);
-      const existingCategory = await Category.findById(category);
-      if (!existingCategory) {
-        return res.status(400).json({ message: "Danh mục không hợp lệ!" });
-      }
-      product.category = existingCategory._id;
-    }
-
-    // Cập nhật ảnh nếu có
-    if (req.file) {
-      product.image = `/uploads/${req.file.filename}`;
-    }
-
-    const updatedProduct = await product.save();
 
     res.status(200).json({
-      message: "Sản phẩm đã được cập nhật thành công!",
-      product: {
-        ...updatedProduct._doc,
-        image: `${req.protocol}://${req.get("host")}${updatedProduct.image}`,
-      },
+      ...product._doc,
+      image: product.image || "",
     });
-  } catch (error) {
-    res.status(500).json({ message: "Lỗi server!", error: error.message });
-  }
-});
-
-// 🔹 5. Xóa sản phẩm (Admin)
-export const deleteProduct = async (req, res) => {
-  try {
-    const product = await Product.findByIdAndDelete(req.params.id);
-    if (!product) {
-      return res.status(404).json({ message: "Sản phẩm không tồn tại!" });
-    }
-    res.status(200).json({ message: "Xóa sản phẩm thành công!" });
   } catch (error) {
     res.status(500).json({ message: "Lỗi server!", error: error.message });
   }
 };
 
-// ✅ Tìm kiếm, lọc & sắp xếp sản phẩm
-export const getProducts = asyncHandler(async (req, res) => {
-  try {
-    const { keyword, category, minPrice, maxPrice, rating, sortBy } = req.query;
+/* ======================
+   3. CREATE PRODUCT
+====================== */
+export const createProduct = asyncHandler(async (req, res) => {
+  const {
+    name,
+    price,
+    category,
+    rating = 0,
+    countInStock,
+    description,
+    specifications,
+  } = req.body;
 
-    let filter = {}; // Điều kiện tìm kiếm
+  // ❌ KHÔNG parseFormData
+  // multer + cloudinary đã xử lý xong
 
-    // 🔍 Tìm kiếm theo tên sản phẩm
-    if (keyword && keyword.trim() !== "") {
-      filter.name = { $regex: keyword, $options: "i" };
-    }
-
-    // 📂 Lọc theo danh mục
-    if (category && category.trim() !== "") {
-      filter.category = category;
-    }
-
-    // 💲 Lọc theo giá (chỉ thêm nếu có giá trị hợp lệ)
-    if (
-      (minPrice && minPrice.trim() !== "" && !isNaN(minPrice)) ||
-      (maxPrice && maxPrice.trim() !== "" && !isNaN(maxPrice))
-    ) {
-      filter.price = {};
-      if (minPrice && minPrice.trim() !== "" && !isNaN(minPrice)) {
-        filter.price.$gte = Number(minPrice);
-      }
-      if (maxPrice && maxPrice.trim() !== "" && !isNaN(maxPrice)) {
-        filter.price.$lte = Number(maxPrice);
-      }
-    }
-
-    // ⭐ Lọc theo đánh giá
-    if (rating && rating.trim() !== "" && !isNaN(rating)) {
-      filter.rating = { $gte: Number(rating) };
-    }
-
-    // 🔀 Xử lý sắp xếp
-    let sortOption = {};
-    switch (sortBy) {
-      case "priceLowHigh":
-        sortOption.price = 1; // Giá tăng dần
-        break;
-      case "priceHighLow":
-        sortOption.price = -1; // Giá giảm dần
-        break;
-      case "latest":
-        sortOption.createdAt = -1; // Sản phẩm mới nhất
-        break;
-      case "bestSelling":
-        sortOption.sold = -1; // Bán chạy nhất
-        break;
-      default:
-        sortOption.createdAt = -1; // Mặc định: mới nhất
-    }
-
-    // 🔥 Truy vấn MongoDB
-    const products = await Product.find(filter).sort(sortOption);
-    res.json(products);
-  } catch (error) {
-    res.status(500).json({ message: "Lỗi server", error: error.message });
+  if (!name || !price || !category || !countInStock) {
+    return res.status(400).json({ message: "Thiếu thông tin sản phẩm!" });
   }
+
+  const existingCategory = await Category.findById(category);
+  if (!existingCategory) {
+    return res.status(400).json({ message: "Danh mục không hợp lệ!" });
+  }
+
+  // ✅ BẮT BUỘC CÓ ẢNH
+  if (!req.file || !req.file.path) {
+    return res.status(400).json({ message: "Upload ảnh thất bại!" });
+  }
+
+  let parsedSpecifications = [];
+  if (specifications) {
+    try {
+      parsedSpecifications = JSON.parse(specifications);
+    } catch {
+      parsedSpecifications = [];
+    }
+  }
+
+  const product = new Product({
+    name: name.trim(),
+    price: Number(price),
+    image: req.file.path, // ✅ CLOUDINARY URL
+    category: existingCategory._id,
+    rating: Number(rating),
+    countInStock: Number(countInStock),
+    description: description?.trim() || "",
+    specifications: parsedSpecifications,
+  });
+
+  const savedProduct = await product.save();
+
+  res.status(201).json({
+    message: "Thêm sản phẩm thành công!",
+    product: savedProduct,
+  });
 });
 
-// ⭐ Thêm đánh giá cho sản phẩm
+/* ======================
+   4. UPDATE PRODUCT
+====================== */
+export const updateProduct = asyncHandler(async (req, res) => {
+  const product = await Product.findById(req.params.id);
+
+  if (!product) {
+    return res.status(404).json({ message: "Sản phẩm không tồn tại!" });
+  }
+
+  let {
+    name,
+    price,
+    category,
+    rating,
+    countInStock,
+    description,
+    specifications,
+  } = req.body;
+
+  if (name !== undefined) product.name = parseFormData(name);
+  if (price !== undefined)
+    product.price = parseFloat(parseFormData(price));
+  if (rating !== undefined)
+    product.rating = parseFloat(parseFormData(rating));
+  if (countInStock !== undefined)
+    product.countInStock = parseInt(parseFormData(countInStock));
+  if (description !== undefined)
+    product.description = parseFormData(description);
+
+  if (specifications !== undefined) {
+    if (typeof specifications === "string") {
+      specifications = JSON.parse(specifications);
+    }
+    product.specifications = specifications;
+  }
+
+  if (category !== undefined) {
+    const existingCategory = await Category.findById(category);
+    if (!existingCategory) {
+      return res.status(400).json({ message: "Danh mục không hợp lệ!" });
+    }
+    product.category = existingCategory._id;
+  }
+
+  // ✅ Nếu có upload ảnh mới → ghi đè URL Cloudinary
+  if (req.file) {
+    product.image = req.file.path;
+  }
+
+  const updatedProduct = await product.save();
+
+  res.status(200).json({
+    message: "Cập nhật sản phẩm thành công!",
+    product: updatedProduct,
+  });
+});
+
+/* ======================
+   5. DELETE PRODUCT
+====================== */
+export const deleteProduct = async (req, res) => {
+  const product = await Product.findByIdAndDelete(req.params.id);
+  if (!product) {
+    return res.status(404).json({ message: "Sản phẩm không tồn tại!" });
+  }
+  res.json({ message: "Xóa sản phẩm thành công!" });
+};
+
+/* ======================
+   6. SEARCH / FILTER
+====================== */
+export const getProducts = asyncHandler(async (req, res) => {
+  const { keyword, category, minPrice, maxPrice, rating, sortBy } = req.query;
+  let filter = {};
+
+  if (keyword) {
+    filter.name = { $regex: keyword, $options: "i" };
+  }
+
+  if (category) {
+    filter.category = category;
+  }
+
+  if (minPrice || maxPrice) {
+    filter.price = {};
+    if (minPrice) filter.price.$gte = Number(minPrice);
+    if (maxPrice) filter.price.$lte = Number(maxPrice);
+  }
+
+  if (rating) {
+    filter.rating = { $gte: Number(rating) };
+  }
+
+  let sortOption = { createdAt: -1 };
+  if (sortBy === "priceLowHigh") sortOption.price = 1;
+  if (sortBy === "priceHighLow") sortOption.price = -1;
+  if (sortBy === "latest") sortOption.createdAt = -1;
+
+  const products = await Product.find(filter).sort(sortOption);
+  res.json(products);
+});
+
+/* ======================
+   7. ADD REVIEW
+====================== */
 export const addReview = asyncHandler(async (req, res) => {
   const { rating, comment } = req.body;
-  const productId = req.params.id;
+  const product = await Product.findById(req.params.id);
 
-  const product = await Product.findById(productId);
-
-  if (product) {
-    // Kiểm tra xem user đã đánh giá chưa
-    const alreadyReviewed = product.reviews.find(
-      (r) => r.user.toString() === req.user._id.toString()
-    );
-
-    if (alreadyReviewed) {
-      return res.status(400).json({ message: "Bạn đã đánh giá sản phẩm này!" });
-    }
-
-    // Tạo đánh giá mới
-    const review = {
-      user: req.user._id,
-      name: req.user.name,
-      rating: Number(rating),
-      comment,
-    };
-
-    product.reviews.push(review); // Thêm vào danh sách đánh giá
-    product.numReviews = product.reviews.length; // Cập nhật số lượng đánh giá
-
-    // Tính điểm trung bình
-    product.rating =
-      product.reviews.reduce((acc, item) => item.rating + acc, 0) /
-      product.numReviews;
-
-    await product.save();
-    res.status(201).json({ message: "Đánh giá thành công!" });
-  } else {
-    res.status(404).json({ message: "Không tìm thấy sản phẩm!" });
+  if (!product) {
+    return res.status(404).json({ message: "Không tìm thấy sản phẩm!" });
   }
+
+  const alreadyReviewed = product.reviews.find(
+    (r) => r.user.toString() === req.user._id.toString()
+  );
+
+  if (alreadyReviewed) {
+    return res.status(400).json({ message: "Bạn đã đánh giá sản phẩm này!" });
+  }
+
+  const review = {
+    user: req.user._id,
+    name: req.user.name,
+    rating: Number(rating),
+    comment,
+  };
+
+  product.reviews.push(review);
+  product.numReviews = product.reviews.length;
+  product.rating =
+    product.reviews.reduce((acc, item) => acc + item.rating, 0) /
+    product.numReviews;
+
+  await product.save();
+  res.status(201).json({ message: "Đánh giá thành công!" });
 });
-// 📄 Lấy danh sách đánh giá của sản phẩm
+
+/* ======================
+   8. GET REVIEWS
+====================== */
 export const getReviews = asyncHandler(async (req, res) => {
   const product = await Product.findById(req.params.id).select("reviews");
-
-  if (product) {
-    res.json(product.reviews);
-  } else {
-    res.status(404).json({ message: "Không tìm thấy sản phẩm!" });
+  if (!product) {
+    return res.status(404).json({ message: "Không tìm thấy sản phẩm!" });
   }
+  res.json(product.reviews);
 });

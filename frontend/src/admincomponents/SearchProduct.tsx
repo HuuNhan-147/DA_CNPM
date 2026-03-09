@@ -77,12 +77,24 @@ const SearchProduct: React.FC = () => {
           <table className="min-w-full divide-y divide-gray-200 border">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ảnh</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tên sản phẩm</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Giá</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Số lượng</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Đánh giá</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Hành động</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Ảnh
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Tên sản phẩm
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Giá
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Số lượng
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Đánh giá
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Hành động
+                </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
@@ -90,16 +102,24 @@ const SearchProduct: React.FC = () => {
                 <tr key={product._id}>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <img
-                      src={product.image ? `http://localhost:5000${product.image}` : "/images/no-image.png"}
-                      alt={product.name}
-                      className="w-16 h-16 object-contain rounded"
-                    />
+  src={product.image || "/images/no-image.png"}
+  alt={product.name}
+  className="w-16 h-16 object-contain rounded"
+  onError={(e) => {
+    (e.currentTarget as HTMLImageElement).src = "/images/no-image.png";
+  }}
+/>
+
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap max-w-xs truncate">{product.name}</td>
+                  <td className="px-6 py-4 whitespace-nowrap max-w-xs truncate">
+                    {product.name}
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap text-blue-600 font-semibold">
                     {product.price.toLocaleString()} VND
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">{product.countInStock}</td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    {product.countInStock}
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex space-x-1">
                       {[...Array(5)].map((_, i) => (

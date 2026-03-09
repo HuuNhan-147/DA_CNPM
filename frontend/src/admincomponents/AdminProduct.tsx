@@ -52,9 +52,6 @@ const AdminProduct: React.FC<ProductCardProps> = ({ product, onDelete }) => {
     }
   };
 
-  const imageUrl = product.image
-    ? `http://localhost:5000${product.image}`
-    : "/images/no-image.png";
 
   const renderStars = () => {
     return [...Array(5)].map((_, i) => (
@@ -85,7 +82,7 @@ const AdminProduct: React.FC<ProductCardProps> = ({ product, onDelete }) => {
           </div>
         )}
         <img
-          src={imageUrl}
+          src={product.image} 
           alt={product.name}
           onError={handleImageError}
           onLoad={handleImageLoad}

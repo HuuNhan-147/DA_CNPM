@@ -6,7 +6,7 @@ import {
   getProductReviews,
 } from "../api/productApi";
 import { fetchCategory } from "../api/CategoryApi";
-import { IProduct } from "../types/product";
+import { IProduct, ISpecification } from "../types/product";
 import { ICategory } from "../types/category";
 import { useParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
@@ -37,6 +37,7 @@ const GetDetail: React.FC = () => {
   const [category, setCategory] = useState<string>("");
   const [countInStock, setCountInStock] = useState<number>(0);
   const [image, setImage] = useState<File | null>(null);
+  const [specifications, setSpecifications] = useState<ISpecification[]>([]);
 
   const [isEditing, setIsEditing] = useState<boolean>(false); // State để theo dõi xem bảng chỉnh sửa có hiển thị hay không
 
@@ -60,6 +61,7 @@ const GetDetail: React.FC = () => {
         setPrice(data.price);
         setCategory(data.category);
         setCountInStock(data.countInStock);
+        setSpecifications(data.specifications || []);
       } catch {
         setError("Không thể tải thông tin sản phẩm.");
       } finally {
@@ -93,6 +95,7 @@ const GetDetail: React.FC = () => {
     formData.append("price", String(price));
     formData.append("category", category);
     formData.append("countInStock", String(countInStock));
+    formData.append("specifications", JSON.stringify(specifications));
     if (image) formData.append("image", image);
 
     try {
@@ -168,6 +171,21 @@ const GetDetail: React.FC = () => {
                   {categoryName || "Không có danh mục"}
                 </p>
 
+                {/* Hiển thị thông số kỹ thuật (View Mode) */}
+                {product?.specifications && product.specifications.length > 0 && (
+                  <div className="mt-4">
+                    <h3 className="font-semibold text-lg border-b pb-1 mb-2">Thông số kỹ thuật</h3>
+                    <div className="bg-gray-50 rounded-lg p-3 text-sm">
+                      {product.specifications.map((spec, index) => (
+                        <div key={index} className="grid grid-cols-2 py-1 border-b last:border-0 border-gray-200">
+                          <span className="text-gray-600 font-medium">{spec.key}</span>
+                          <span className="text-gray-800">{spec.value} {spec.unit && <span className="text-gray-500 text-xs">({spec.unit})</span>}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <button
                   onClick={() => setIsEditing(true)}
                   className="px-6 py-2 bg-blue-600 text-white rounded-lg"
@@ -216,6 +234,76 @@ const GetDetail: React.FC = () => {
                   placeholder="Số lượng trong kho"
                   className="w-full px-4 py-2 border rounded-md"
                 />
+
+                {/* Edit Specifications */}
+                <div className="border rounded-md p-3 bg-gray-50">
+                   <div className="flex justify-between items-center mb-2">
+                    <label className="text-sm font-semibold text-gray-700">Thông số kỹ thuật</label>
+                    <button
+                      type="button"
+                      onClick={() => setSpecifications([...specifications, { key: "", value: "", unit: "", group: "" }])}
+                      className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200"
+                    >
+                      + Thêm
+                    </button>
+                  </div>
+                  <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                    {specifications.map((spec, index) => (
+                      <div key={index} className="flex gap-2 items-start bg-white p-2 rounded border shadow-sm">
+                        <div className="grid grid-cols-2 gap-2 flex-1">
+                          <input
+                            placeholder="Tên (RAM)"
+                            value={spec.key}
+                            onChange={(e) => {
+                              const newSpecs = [...specifications];
+                              newSpecs[index].key = e.target.value;
+                              setSpecifications(newSpecs);
+                            }}
+                            className="text-xs px-2 py-1 border rounded"
+                          />
+                          <input
+                            placeholder="Giá trị (8GB)"
+                            value={spec.value}
+                            onChange={(e) => {
+                              const newSpecs = [...specifications];
+                              newSpecs[index].value = e.target.value;
+                              setSpecifications(newSpecs);
+                            }}
+                            className="text-xs px-2 py-1 border rounded"
+                          />
+                          <input
+                            placeholder="Đơn vị (GB)"
+                            value={spec.unit}
+                            onChange={(e) => {
+                              const newSpecs = [...specifications];
+                              newSpecs[index].unit = e.target.value;
+                              setSpecifications(newSpecs);
+                            }}
+                            className="text-xs px-2 py-1 border rounded"
+                          />
+                          <input
+                            placeholder="Nhóm"
+                            value={spec.group}
+                            onChange={(e) => {
+                              const newSpecs = [...specifications];
+                              newSpecs[index].group = e.target.value;
+                              setSpecifications(newSpecs);
+                            }}
+                            className="text-xs px-2 py-1 border rounded"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setSpecifications(specifications.filter((_, i) => i !== index))}
+                          className="text-red-500 hover:text-red-700"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
                 <input
                   type="file"
                   onChange={(e) => setImage(e.target.files?.[0] || null)}

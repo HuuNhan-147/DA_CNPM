@@ -1,6 +1,7 @@
 import express from "express";
 import dotenv from "dotenv";
 import mongoose from "mongoose";
+import path from "path";
 import routes from "./routes/index.js";
 import { connectRedis, disconnectRedis } from "./config/redis.js";
 import cors from "cors";
@@ -13,7 +14,6 @@ app.use(
   cors({
     origin: [
       "http://localhost:5173",
-      "https://da-cnpm-frontend-ofd4.onrender.com"
     ],
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true,
@@ -21,7 +21,6 @@ app.use(
 );
 app.use(express.json()); // ✅ Middleware JSON
 app.use(express.urlencoded({ extended: true })); // Xử lý dữ liệu form
-app.use("/uploads", express.static("uploads")); // Cho phép truy cập ảnh đã upload
 app.use("/api", routes); // ✅ Gọi routes
 app.get("/", (req, res) => {
   res.send("Chào mừng bạn đến với API của tôi!");

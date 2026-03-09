@@ -136,14 +136,14 @@ const OrderMainInfo = ({ order }: { order: any }) => {
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
                       <img
-                        className="h-10 w-10 rounded"
-                        src={
-                          item.image?.startsWith("http")
-                            ? item.image
-                            : `http://localhost:5000${item.image}`
-                        }
-                        alt={item.name}
-                      />
+  className="h-10 w-10 rounded"
+  src={item.image || "/images/no-image.png"}
+  alt={item.name}
+  onError={(e) => {
+    (e.currentTarget as HTMLImageElement).src = "/images/no-image.png";
+  }}
+/>
+
                       <div className="ml-4">
                         <div className="text-sm font-medium text-gray-900">
                           {item.name}

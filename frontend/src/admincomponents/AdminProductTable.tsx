@@ -101,21 +101,35 @@ const AdminProductTable: React.FC<AdminProductTableProps> = ({
     <>
       <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center">
         <h3 className="font-semibold text-gray-700">
-          Tổng cộng <span className="text-blue-600">{products.length}</span> sản phẩm
+          Tổng cộng <span className="text-blue-600">{products.length}</span> sản
+          phẩm
         </h3>
         <div className="text-sm text-gray-500">
-          Sắp xếp theo: <span className="font-medium text-gray-700">Mới nhất</span>
+          Sắp xếp theo:{" "}
+          <span className="font-medium text-gray-700">Mới nhất</span>
         </div>
       </div>
       <table className="min-w-full divide-y divide-gray-200">
         <thead className="bg-gray-50">
           <tr>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ảnh</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tên sản phẩm</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Giá</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Số lượng</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Đánh giá</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Hành động</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Ảnh
+            </th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Tên sản phẩm
+            </th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Giá
+            </th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Số lượng
+            </th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Đánh giá
+            </th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Hành động
+            </th>
           </tr>
         </thead>
         <tbody className="bg-white divide-y divide-gray-200">
@@ -123,14 +137,20 @@ const AdminProductTable: React.FC<AdminProductTableProps> = ({
             <tr key={product._id}>
               <td className="px-6 py-4 whitespace-nowrap">
                 <img
-                  src={product.image ? `http://localhost:5000${product.image}` : "/images/no-image.png"}
+                  src={product.image}
                   alt={product.name}
                   className="w-16 h-16 object-contain rounded"
                 />
               </td>
-              <td className="px-6 py-4 whitespace-nowrap max-w-xs truncate">{product.name}</td>
-              <td className="px-6 py-4 whitespace-nowrap text-blue-600 font-semibold">{product.price.toLocaleString()} VND</td>
-              <td className="px-6 py-4 whitespace-nowrap">{product.countInStock}</td>
+              <td className="px-6 py-4 whitespace-nowrap max-w-xs truncate">
+                {product.name}
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-blue-600 font-semibold">
+                {product.price.toLocaleString()} VND
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap">
+                {product.countInStock}
+              </td>
               <td className="px-6 py-4 whitespace-nowrap">
                 <div className="flex space-x-1">
                   {[...Array(5)].map((_, i) => (

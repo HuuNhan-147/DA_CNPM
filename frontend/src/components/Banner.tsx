@@ -9,11 +9,11 @@ import { ICategory } from "../types/category";
 const images = [banner1, banner2, banner3];
 
 const categoryBrandsById: Record<string, string[]> = {
-  "67e17dbc476cbfe4dc4dfe02": ["Iphone", "Samsung", "Xiaomi", "Oppo", "Vivo"], // Điện Thoại & Phụ Kiện
-  "67e17df8476cbfe4dc4dfe06": ["Dell", "HP", "Acer", "MacBook", "Asus"], // Laptop & Máy Tính
-  "67e17e9d476cbfe4dc4dfe0a": ["Rolex", "Omega", "Casio", "Seiko", "Citizen"], // Đồng Hồ
-  "67e17ea9476cbfe4dc4dfe0e": ["Samsung", "LG", "Sony", "TCL", "Hisense"], // Tivi
-  "67e17ed2476cbfe4dc4dfe12": [
+  "68d4e290b7c94b85f4e968d3": ["Iphone", "Samsung", "Xiaomi", "Oppo", "Vivo"], // Điện Thoại & Phụ Kiện
+  "68d4e27db7c94b85f4e968ce": ["Dell", "HP", "Acer", "MacBook", "Asus"], // Laptop & Máy Tính
+  "68d4e2a7b7c94b85f4e968d8": ["Rolex", "Omega", "Casio", "Seiko", "Citizen"], // Đồng Hồ
+  "68d4e2ccb7c94b85f4e968dd": ["Samsung", "LG", "Sony", "TCL", "Hisense"], // Tivi
+  "68d4e337b7c94b85f4e968e2": [
     "Tai nghe",
     "Chuột",
     "Bàn phím",

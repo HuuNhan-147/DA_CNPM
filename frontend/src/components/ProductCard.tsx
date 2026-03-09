@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { IProduct } from "../types/product";
 import { AddToCartButton } from "./AddToCartButton";
 import { useNavigate } from "react-router-dom";
@@ -9,14 +9,24 @@ interface ProductCardProps {
 }
 
 const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
-  const [loading, setLoading] = useState<boolean>(true);
-  const [imageSrc, setImageSrc] = useState<string>("");
-  const [shippingPrice, setShippingPrice] = useState<number>(0); // Thêm state cho phí vận chuyển
+  const [loading, setLoading] = useState(true);
+  const [shippingPrice, setShippingPrice] = useState(0);
   const { getToken } = useAuth();
   const navigate = useNavigate();
 
+  /* ================= IMAGE ================= */
+
+  // 👉 CHUẨN: nếu là Cloudinary (http/https) thì dùng trực tiếp
+  const imageUrl = product.image
+    ? product.image.startsWith("http")
+      ? product.image
+      : `http://localhost:5000${product.image}`
+    : "/images/no-image.png";
+
+  console.log("🖼️ Image URL render:", imageUrl);
+
   const handleImageError = (
-    e: React.SyntheticEvent<HTMLImageElement, Event>
+    e: React.SyntheticEvent<HTMLImageElement>
   ) => {
     const target = e.target as HTMLImageElement;
     target.src = "/images/no-image.png";
@@ -28,18 +38,15 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     setLoading(false);
   };
 
-  const handleBuyNow = () => {
-    const token = getToken(); // Lấy token từ context Auth
+  /* ================= ACTIONS ================= */
 
-    console.log("🔐 Token hiện tại:", token);
+  const handleBuyNow = () => {
+    const token = getToken();
+
     if (!token) {
-      console.warn("⚠️ Người dùng chưa đăng nhập. Chuyển hướng đến /login");
       navigate("/login");
       return;
     }
-
-    console.log("🛒 Thông tin sản phẩm sẽ mua:", product);
-    console.log("🚚 Phí vận chuyển:", shippingPrice);
 
     navigate("/create", {
       state: {
@@ -50,28 +57,23 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   };
 
   const handleImageClick = () => {
-    // Loại bỏ http://localhost:5000 nếu có
-    const cleanedImage =
-      product.image?.replace("https://da-cnpm-backend.onrender.com", "") || product.image;
-
-    // Tạo bản sao của product với image đã xử lý
-    const productWithoutBaseUrl = {
-      ...product,
-      image: cleanedImage,
-    };
-
-    // Điều hướng sang trang chi tiết, truyền product (đã làm sạch URL ảnh)
+    // 👉 KHÔNG cần xử lý URL ảnh nữa
     navigate(`/products/${product._id}`, {
-      state: { product: productWithoutBaseUrl },
+      state: { product },
     });
   };
 
-  const imageUrl = product.image
-    ? `https://da-cnpm-backend.onrender.com${product.image}`
-    : "/images/no-image.png";
+  /* ================= SHIPPING ================= */
 
-  const renderStars = () => {
-    return [...Array(5)].map((_, i) => (
+  useEffect(() => {
+    const shipping = product.price * 0.05;
+    setShippingPrice(shipping);
+  }, [product]);
+
+  /* ================= UI ================= */
+
+  const renderStars = () =>
+    [...Array(5)].map((_, i) => (
       <svg
         key={i}
         xmlns="http://www.w3.org/2000/svg"
@@ -82,25 +84,13 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
       </svg>
     ));
-  };
-
-  // Giả sử bạn có một hàm tính phí vận chuyển, ví dụ: phí vận chuyển là 5% giá trị sản phẩm
-  const calculateShippingPrice = () => {
-    const shipping = product.price * 0.05; // Phí vận chuyển là 5% giá trị sản phẩm
-    setShippingPrice(shipping); // Cập nhật phí vận chuyển vào state
-  };
-
-  // Gọi hàm tính phí vận chuyển khi component render lần đầu
-  React.useEffect(() => {
-    calculateShippingPrice();
-  }, [product]);
 
   return (
     <div className="bg-white rounded-lg overflow-hidden shadow-md hover:shadow-xl transition duration-300 relative p-4">
-      {/* Phần hình ảnh sản phẩm */}
+      {/* IMAGE */}
       <div className="relative aspect-square mb-4">
         {loading && (
-          <div className="absolute inset-0 flex justify-center items-center bg-gray-200 opacity-75">
+          <div className="absolute inset-0 flex justify-center items-center bg-gray-200">
             <span>Đang tải ảnh...</span>
           </div>
         )}
@@ -111,7 +101,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           onError={handleImageError}
           onLoad={handleImageLoad}
           loading="lazy"
-          onClick={handleImageClick} // Khi nhấn vào ảnh, chuyển đến trang chi tiết
+          onClick={handleImageClick}
         />
         {product.rating === 5 && (
           <span className="absolute top-2 left-2 bg-red-600 text-white text-sm font-bold px-3 py-1 rounded-full">
@@ -120,7 +110,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         )}
       </div>
 
-      {/* Phần thông tin sản phẩm */}
+      {/* INFO */}
       <div className="p-2">
         <h3 className="text-xl font-bold text-gray-900 mb-2 line-clamp-2">
           {product.name}
@@ -142,7 +132,10 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
             Còn {product.countInStock} sản phẩm
           </span>
           <div className="flex space-x-2">
-            <AddToCartButton product={product} className="text-sm py-1 px-3" />
+            <AddToCartButton
+              product={product}
+              className="text-sm py-1 px-3"
+            />
             <button
               className="bg-orange-500 text-white px-3 py-1 rounded text-sm hover:bg-orange-600 transition"
               onClick={handleBuyNow}
