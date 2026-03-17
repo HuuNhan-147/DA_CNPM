@@ -46,73 +46,67 @@ export async function runAgent(
     }
 
     // Lấy hoặc tạo session + load history
-    let currentSessionId = sessionId;
+    let currentSessionId = sessionId || `anon_${Date.now()}`;
     let conversationHistory = [];
+    let messageToUse = normalizedMessage;
+    let resolvedReference = null;
+    let sessionSummaryText = null;
 
     if (userId) {
       currentSessionId = await redisChatService.getOrCreateSession(
         userId,
-        sessionId
+        currentSessionId
       );
       console.log(`🔄 Using session: ${currentSessionId}`);
 
-      const recentMessages = await redisChatService.getMessages(
-        userId,
-        currentSessionId,
-        15,
-        0
-      );
+      // TỐI ƯU HÓA: Chạy 3 tác vụ Async độc lập (lấy tin nhắn, lấy tóm tắt, xử lý input) CÙNG LÚC để giảm độ trễ
+      const [recentMessagesResult, processedResult, sessionSummaryResult] = await Promise.allSettled([
+        redisChatService.getMessages(userId, currentSessionId, 15, 0),
+        processInput(normalizedMessage, userId, currentSessionId),
+        getSessionSummary(userId, currentSessionId)
+      ]);
 
-      conversationHistory = recentMessages.map((msg) => ({
-        role: msg.role === "assistant" ? "model" : "user",
-        content: msg.content,
-        _timestamp: msg.timestamp,
-        _functionCalls: msg.functionCalls,
-      }));
-
-      console.log(
-        `📚 Loaded ${conversationHistory.length} messages from Redis`
-      );
-    } else {
-      currentSessionId = `anon_${Date.now()}`;
-      console.log(`👻 Anonymous session: ${currentSessionId}`);
-    }
-
-    // Tiền xử lý user message với context
-    let messageToUse = normalizedMessage;
-    let resolvedReference = null;
-
-    try {
-      const processed = await processInput(
-        normalizedMessage,
-        userId,
-        currentSessionId
-      );
-
-      if (processed && processed.text) {
-        messageToUse = processed.text;
-        console.log(
-          `🔄 Processed input: "${normalizedMessage}" → "${messageToUse}"`
-        );
+      // 1. Gán kết quả recentMessages
+      if (recentMessagesResult.status === 'fulfilled' && recentMessagesResult.value) {
+        conversationHistory = recentMessagesResult.value.map((msg) => ({
+          role: msg.role === "assistant" ? "model" : "user",
+          content: msg.content,
+          _timestamp: msg.timestamp,
+          _functionCalls: msg.functionCalls,
+        }));
+        console.log(`📚 Loaded ${conversationHistory.length} messages from Redis`);
       }
 
-      if (processed && processed.resolved) {
-        resolvedReference = processed.resolved;
-        console.log(`🔗 Resolved reference:`, resolvedReference);
-
-        if (
-          resolvedReference &&
-          resolvedReference.success &&
-          resolvedReference.product
-        ) {
-          const product = resolvedReference.product;
-          const refText = `[PRODUCT_CONTEXT: User đang đề cập đến sản phẩm: name="${product.name}", productId="${product.id}", price=${product.price}]`;
-          conversationHistory.push({ role: "system", content: refText });
-          console.log(`📎 Added context reference: ${refText}`);
+      // 2. Gán kết quả processed Input
+      if (processedResult.status === 'fulfilled' && processedResult.value) {
+        const processed = processedResult.value;
+        if (processed.text) messageToUse = processed.text;
+        if (processed.resolved) {
+          resolvedReference = processed.resolved;
+          if (resolvedReference && resolvedReference.success && resolvedReference.product) {
+            const product = resolvedReference.product;
+            const refText = `[PRODUCT_CONTEXT: User đang đề cập đến sản phẩm: name="${product.name}", productId="${product.id}", price=${product.price}]`;
+            conversationHistory.push({ role: "system", content: refText });
+            console.log(`📎 Added context reference: ${refText}`);
+          }
         }
       }
-    } catch (e) {
-      console.warn("⚠️ inputProcessor error:", e.message);
+
+      // 3. Gán kết quả sessionSummary
+      if (sessionSummaryResult.status === 'fulfilled' && sessionSummaryResult.value) {
+        sessionSummaryText = sessionSummaryResult.value;
+        conversationHistory.unshift({ role: "system", content: sessionSummaryText });
+        console.log("📋 Added session summary to context");
+      }
+    } else {
+      console.log(`👻 Anonymous session: ${currentSessionId}`);
+      // Với user ẩn danh, vẫn xử lý input cơ bản (không có Redis)
+      try {
+        const processed = await processInput(normalizedMessage, null, currentSessionId);
+        if (processed && processed.text) messageToUse = processed.text;
+      } catch (e) {
+        console.warn("⚠️ inputProcessor error:", e.message);
+      }
     }
 
     // Lưu message đã xử lý
@@ -125,25 +119,6 @@ export async function runAgent(
         resolvedReference ? { resolved: resolvedReference } : null
       );
       console.log(`✅ Saved processed user message to Redis`);
-    }
-
-    // Thêm session summary
-    if (userId && currentSessionId) {
-      try {
-        const sessionSummary = await getSessionSummary(
-          userId,
-          currentSessionId
-        );
-        if (sessionSummary) {
-          conversationHistory.unshift({
-            role: "system",
-            content: sessionSummary,
-          });
-          console.log("📋 Added session summary to context");
-        }
-      } catch (e) {
-        console.warn("⚠️ Could not load session summary:", e.message);
-      }
     }
 
     // Tạo conversation contents với lịch sử
@@ -222,9 +197,10 @@ export async function runAgent(
         }))
       );
 
+      // 🚀 Vá lỗi "missing thought_signature": Giữ nguyên cấu trúc parts ban đầu của Gemini trả về
       contents.push({
         role: "model",
-        parts: response.functionCalls.map((fc) => ({
+        parts: response.functionCallsOriginalParts || response.functionCalls.map((fc) => ({
           functionCall: { name: fc.name, args: fc.args },
         })),
       });
@@ -264,7 +240,7 @@ export async function runAgent(
     console.log("💬 Final Text Length:", finalText.length, "chars");
     console.log("=".repeat(60) + "\n");
 
-    // Build structured payload - Enhanced
+    // Build structured payload - Enhanced & Optimized
     let assistantPayload = null;
     try {
       const products = [];
@@ -275,122 +251,17 @@ export async function runAgent(
 
         if (!result || !result.success) continue;
 
-        // Xử lý search_products
         if (name === "search_products" && Array.isArray(result.data)) {
           for (const p of result.data) {
-            if (p && (p.id || p._id) && (p.name || p.title)) {
-              // Xử lý ảnh
-              let imageUrl =
-                p.image || p.images?.[0] || "/images/placeholder-product.jpg";
-              if (imageUrl && !imageUrl.startsWith("http")) {
-                const cleanPath = imageUrl.startsWith("/")
-                  ? imageUrl.slice(1)
-                  : imageUrl;
-                imageUrl = `http://localhost:5000/${cleanPath}`;
-              }
-
-              // Xử lý category
-              let categoryName = "uncategorized";
-
-              // Ưu tiên 1: categoryName trực tiếp
-              if (p.categoryName && typeof p.categoryName === "string") {
-                categoryName = p.categoryName;
-              }
-              // Ưu tiên 2: category object có name
-              else if (
-                p.category?.name &&
-                typeof p.category.name === "string"
-              ) {
-                categoryName = p.category.name;
-              }
-              // Ưu tiên 3: category là string (không phải ObjectID)
-              else if (typeof p.category === "string") {
-                const isObjectId = /^[0-9a-fA-F]{24}$/.test(p.category);
-                if (!isObjectId && p.category.trim() !== "") {
-                  categoryName = p.category;
-                }
-              }
-
-              products.push({
-                _id: p.id || p._id,
-                name: p.name || p.title,
-                price: p.price || 0,
-                image: imageUrl,
-                category: categoryName,
-                rating: p.rating || 4.5,
-                countInStock: p.countInStock || 10,
-                description:
-                  p.description ||
-                  `${p.name || p.title} - Sản phẩm chất lượng cao`,
-                numReviews: p.numReviews || 0,
-                reviews: p.reviews || [],
-                createdAt: p.createdAt || new Date().toISOString(),
-                updatedAt: p.updatedAt || new Date().toISOString(),
-                quantity: p.quantity || 0,
-              });
-            }
+            const formattedProduct = formatProductForPayload(p);
+            if (formattedProduct) products.push(formattedProduct);
           }
-        }
-        // Xử lý get_product_detail
-        else if (name === "get_product_detail" && result.data) {
-          const p = result.data;
-
-          // Xử lý ảnh
-          let imageUrl =
-            p.image || p.images?.[0] || "/images/placeholder-product.jpg";
-          if (imageUrl && !imageUrl.startsWith("http")) {
-            const cleanPath = imageUrl.startsWith("/")
-              ? imageUrl.slice(1)
-              : imageUrl;
-            imageUrl = `http://localhost:5000${cleanPath}`;
-          }
-
-          // Xử lý category
-          let categoryName = "uncategorized";
-
-          if (p.categoryName && typeof p.categoryName === "string") {
-            categoryName = p.categoryName;
-          } else if (p.category?.name && typeof p.category.name === "string") {
-            categoryName = p.category.name;
-          } else if (typeof p.category === "string") {
-            const isObjectId = /^[0-9a-fA-F]{24}$/.test(p.category);
-            if (!isObjectId && p.category.trim() !== "") {
-              categoryName = p.category;
-            }
-          }
-
-          products.push({
-            _id: p.id || p._id,
-            name: p.name || p.title,
-            price: p.price || 0,
-            image: imageUrl,
-            category: categoryName,
-            rating: p.rating || 4.5,
-            countInStock: p.countInStock || 10,
-            description:
-              p.description || `${p.name || p.title} - Sản phẩm chất lượng cao`,
-            numReviews: p.numReviews || 0,
-            reviews: p.reviews || [],
-            createdAt: p.createdAt || new Date().toISOString(),
-            updatedAt: p.updatedAt || new Date().toISOString(),
-            quantity: p.quantity || 0,
-          });
-        }
-        // Xử lý get_cart (giỏ hàng) - KHÔNG thêm products
-        else if (
-          name === "get_cart" &&
-          result.data &&
-          result.message.includes("giỏ hàng")
-        ) {
-          // KHÔNG thêm products từ get_cart vào payload
-        }
-        // Xử lý add_to_cart - KHÔNG thêm products
-        else if (name === "add_to_cart" && result.success) {
-          // KHÔNG thêm products từ add_to_cart vào payload
+        } else if (name === "get_product_detail" && result.data) {
+          const formattedProduct = formatProductForPayload(result.data);
+          if (formattedProduct) products.push(formattedProduct);
         }
       }
 
-      // GÁN products VÀO assistantPayload
       if (products.length > 0) {
         assistantPayload = { products };
       }
@@ -476,6 +347,47 @@ function buildContents(message, conversationHistory) {
   return contents;
 }
 
+/** TỐI ƯU HÓA: Helper function phục vụ format sản phẩm nhanh, tránh lặp code */
+function formatProductForPayload(p) {
+  if (!p || !(p.id || p._id) || !(p.name || p.title)) return null;
+
+  // Xử lý ảnh
+  let imageUrl = p.image || p.images?.[0] || "/images/placeholder-product.jpg";
+  if (imageUrl && !imageUrl.startsWith("http")) {
+    const cleanPath = imageUrl.startsWith("/") ? imageUrl.slice(1) : imageUrl;
+    imageUrl = `http://localhost:5000/${cleanPath}`;
+  }
+
+  // Xử lý category
+  let categoryName = "uncategorized";
+  if (p.categoryName && typeof p.categoryName === "string") {
+    categoryName = p.categoryName;
+  } else if (p.category?.name && typeof p.category.name === "string") {
+    categoryName = p.category.name;
+  } else if (typeof p.category === "string") {
+    const isObjectId = /^[0-9a-fA-F]{24}$/.test(p.category);
+    if (!isObjectId && p.category.trim() !== "") {
+      categoryName = p.category;
+    }
+  }
+
+  return {
+    _id: p.id || p._id,
+    name: p.name || p.title,
+    price: p.price || 0,
+    image: imageUrl,
+    category: categoryName,
+    rating: p.rating || 4.5,
+    countInStock: p.countInStock || 10,
+    description: p.description || `${p.name || p.title} - Sản phẩm chất lượng cao`,
+    numReviews: p.numReviews || 0,
+    reviews: p.reviews || [],
+    createdAt: p.createdAt || new Date().toISOString(),
+    updatedAt: p.updatedAt || new Date().toISOString(),
+    quantity: p.quantity || 0,
+  };
+}
+
 async function executeFunctions(
   functionCalls,
   userId,
@@ -559,9 +471,11 @@ async function callGemini(contents, functionDeclarations) {
         throw new Error("No content in response");
       }
 
-      const functionCalls = content.parts
-        ?.filter((part) => part.functionCall)
-        .map((part) => ({
+      // 🚀 LẤY ORIGINAL PARTS ĐỂ TRÁNH LỖI MISSING THOUGHT_SIGNATURE
+      const originalFunctionCallParts = content.parts?.filter((part) => part.functionCall);
+
+      const functionCalls = originalFunctionCallParts
+        ?.map((part) => ({
           name: part.functionCall.name,
           args: part.functionCall.args || {},
         }));
@@ -575,6 +489,7 @@ async function callGemini(contents, functionDeclarations) {
 
       return {
         functionCalls: functionCalls?.length > 0 ? functionCalls : null,
+        functionCallsOriginalParts: originalFunctionCallParts, // Lưu lại để truyền lại vòng tiếp theo
         text: text || null,
       };
     } catch (err) {

@@ -243,7 +243,7 @@ const Dashboard: React.FC = () => {
                 <div key={user._id} className="flex items-center space-x-4">
                   <div className="flex-shrink-0">
                     <div className="h-10 w-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-500">
-                      {user.name.charAt(0)}
+                      {user.name?.[0]?.toUpperCase() || "U"}
                     </div>
                   </div>
                   <div>
