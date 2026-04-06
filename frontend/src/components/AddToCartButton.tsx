@@ -51,9 +51,10 @@ export const AddToCartButton: React.FC<AddToCartButtonProps> = ({
       });
 
       if (onAddToCart) onAddToCart();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Lỗi khi thêm vào giỏ hàng:", error);
-      toast.error("Thêm vào giỏ hàng thất bại!", {
+      const errorMessage = error.response?.data?.message || "Thêm vào giỏ hàng thất bại!";
+      toast.error(errorMessage, {
         position: "top-right",
         autoClose: 2000,
       });

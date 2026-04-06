@@ -1,5 +1,6 @@
 import Order from "../models/OrderModel.js";
 import User from "../models/UserModel.js";
+import Product from "../models/ProductModel.js";
 // ✅ Tạo đơn hàng
 export const createOrder = async (req, res) => {
   try {
@@ -7,6 +8,17 @@ export const createOrder = async (req, res) => {
 
     if (!orderItems || orderItems.length === 0) {
       return res.status(400).json({ message: "Không có sản phẩm nào!" });
+    }
+
+    // Kiểm tra số lượng tồn kho
+    for (const item of orderItems) {
+      const product = await Product.findById(item.product);
+      if (!product) {
+        return res.status(404).json({ message: `Sản phẩm ${item.name} không tồn tại` });
+      }
+      if (product.countInStock < item.quantity) {
+        return res.status(400).json({ message: `Sản phẩm ${item.name} không đủ số lượng trong kho (Còn ${product.countInStock})` });
+      }
     }
 
     // ✅ Tính tổng tiền từ orderItems
@@ -140,6 +152,17 @@ export const updateOrderToPaid = async (req, res) => {
     order.isPaid = true;
     order.paidAt = Date.now();
 
+    if (!order.stockReduced) {
+      for (const item of order.orderItems) {
+        const product = await Product.findById(item.product);
+        if (product) {
+          product.countInStock -= item.quantity;
+          await product.save();
+        }
+      }
+      order.stockReduced = true;
+    }
+
     const updatedOrder = await order.save();
 
     res
@@ -271,6 +294,17 @@ export const deleteOrder = async (req, res) => {
         .json({ message: "Bạn không có quyền xóa đơn hàng này!" });
     }
 
+    // Cộng lại stock nếu đã giảm
+    if (order.stockReduced) {
+      for (const item of order.orderItems) {
+        const product = await Product.findById(item.product);
+        if (product) {
+          product.countInStock += item.quantity;
+          await product.save();
+        }
+      }
+    }
+
     await order.deleteOne(); // Xóa đơn hàng
 
     res.status(200).json({ message: "Đơn hàng đã được xóa thành công!" });
@@ -290,6 +324,16 @@ export const updateOrderStatus = async (req, res) => {
 
     // Cập nhật trạng thái thanh toán (nếu có)
     if (isPaid !== undefined) {
+      if (isPaid && !order.stockReduced) {
+        for (const item of order.orderItems) {
+          const product = await Product.findById(item.product);
+          if (product) {
+            product.countInStock -= item.quantity;
+            await product.save();
+          }
+        }
+        order.stockReduced = true;
+      }
       order.isPaid = isPaid;
       order.paidAt = isPaid ? Date.now() : null; // Cập nhật thời gian thanh toán
     }

@@ -23,6 +23,15 @@ export const addToCart = async (req, res) => {
       (item) => item.product.toString() === productId
     );
 
+    let newQuantity = quantity;
+    if (itemIndex > -1) {
+      newQuantity += cart.cartItems[itemIndex].quantity;
+    }
+
+    if (newQuantity > product.countInStock) {
+      return res.status(400).json({ message: `Sản phẩm không đủ số lượng trong kho (Còn ${product.countInStock})` });
+    }
+
     if (itemIndex > -1) {
       cart.cartItems[itemIndex].quantity += quantity;
     } else {
@@ -48,7 +57,7 @@ export const getCart = async (req, res) => {
     // Tìm giỏ hàng của người dùng và populate thông tin sản phẩm
     const cart = await Cart.findOne({ user: req.user._id }).populate(
       "cartItems.product",
-      "name price image"
+      "name price image countInStock"
     );
 
     // Kiểm tra xem giỏ hàng có tồn tại và có sản phẩm không
@@ -86,6 +95,7 @@ export const getCart = async (req, res) => {
             name: item.product.name,
             price: item.product.price,
             image: item.product.image,
+            countInStock: item.product.countInStock,
           },
           quantity: item.quantity,
         })),
@@ -105,6 +115,16 @@ export const getCart = async (req, res) => {
 export const updateCartItem = async (req, res) => {
   try {
     const { productId, quantity } = req.body;
+    
+    const product = await Product.findById(productId);
+    if (!product) {
+      return res.status(404).json({ message: "Sản phẩm không tồn tại!" });
+    }
+
+    if (quantity > product.countInStock) {
+      return res.status(400).json({ message: `Sản phẩm không đủ số lượng trong kho (Còn ${product.countInStock})` });
+    }
+
     const cart = await Cart.findOne({ user: req.user._id });
 
     if (!cart) {
@@ -192,11 +212,17 @@ export const checkout = async (req, res) => {
 
     const cart = await Cart.findOne({ user: userId }).populate(
       "cartItems.product",
-      "name image price"
+      "name image price countInStock"
     );
 
     if (!cart || cart.cartItems.length === 0) {
       return res.status(400).json({ message: "Giỏ hàng trống!" });
+    }
+
+    for (const item of cart.cartItems) {
+      if (item.product.countInStock < item.quantity) {
+        return res.status(400).json({ message: `Sản phẩm ${item.product.name} không đủ số lượng trong kho!` });
+      }
     }
 
     const itemsPrice = cart.cartItems.reduce(

@@ -53,6 +53,7 @@ const orderSchema = new mongoose.Schema(
     vnpayTransactionId: { type: String },
     isDelivered: { type: Boolean, default: false },
     deliveredAt: { type: Date },
+    stockReduced: { type: Boolean, default: false },
   },
   {
     timestamps: true,

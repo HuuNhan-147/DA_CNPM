@@ -4,6 +4,8 @@ import crypto from "crypto";
 import qs from "qs";
 import dotenv from "dotenv";
 import Order from "../models/OrderModel.js";
+import Product from "../models/ProductModel.js";
+import mongoose from "mongoose";
 
 dotenv.config();
 
@@ -141,6 +143,17 @@ export const vnpayReturn = async (req, res) => {
           payDate: vnp_Params["vnp_PayDate"],
           responseCode,
         };
+
+        if (!order.stockReduced) {
+          for (const item of order.orderItems) {
+            const product = await Product.findById(item.product).session(session);
+            if (product) {
+              product.countInStock -= item.quantity;
+              await product.save({ session });
+            }
+          }
+          order.stockReduced = true;
+        }
       } else {
         // Failed case
         order.paymentStatus = "failed";

@@ -253,7 +253,12 @@ const ProductDetail: React.FC = () => {
                         </div>
                         <button
                             onClick={handleBuyNow}
-                            className="flex-1 px-6 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition duration-300 font-bold shadow-lg shadow-indigo-200"
+                            disabled={!product?.countInStock}
+                            className={`flex-1 px-6 py-3 text-white rounded-xl transition duration-300 font-bold shadow-lg ${
+                              !product?.countInStock 
+                                ? "bg-gray-400 cursor-not-allowed shadow-none" 
+                                : "bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200"
+                            }`}
                         >
                             Mua ngay
                         </button>

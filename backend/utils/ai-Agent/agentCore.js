@@ -212,6 +212,9 @@ export async function runAgent(
         })),
       });
 
+      // Thêm delay 1 giây giữa các bước function calling để tránh lỗi 429 Too Many Requests
+      await new Promise((r) => setTimeout(r, 1000));
+
       response = await callGemini(contents, functionDeclarations);
 
       // 🔍 LOG SUBSEQUENT RESPONSES
@@ -434,7 +437,7 @@ async function executeFunctions(
 }
 
 async function callGemini(contents, functionDeclarations) {
-  const maxRetries = 3;
+  const maxRetries = 4; // Tăng lên 4 để xử lý 429 tốt hơn
   const baseDelay = 1000;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -494,10 +497,11 @@ async function callGemini(contents, functionDeclarations) {
       };
     } catch (err) {
       const status = err?.response?.status;
-      const isRetryable = !status || status >= 500;
+      // Thêm status 429 vào danh sách có thể retry
+      const isRetryable = !status || status >= 500 || status === 429;
 
       console.warn(
-        `⚠️ callGemini attempt ${attempt} failed:`,
+        `⚠️ callGemini attempt ${attempt} failed. Status: ${status}, Message:`,
         err?.message || err
       );
 
@@ -510,19 +514,23 @@ async function callGemini(contents, functionDeclarations) {
 
       if (attempt < maxRetries && isRetryable) {
         const jitter = Math.floor(Math.random() * 300);
-        const delay = baseDelay * Math.pow(2, attempt - 1) + jitter;
-        console.log(`🔄 Retrying in ${delay}ms (${attempt + 1}/${maxRetries})`);
+        // Nếu là lỗi 429, tăng base delay lên dài hơn (3 giây)
+        const currentBaseDelay = status === 429 ? baseDelay * 3 : baseDelay; 
+        const delay = currentBaseDelay * Math.pow(2, attempt - 1) + jitter;
+        
+        console.log(`🔄 Retrying in ${delay}ms (${attempt + 1}/${maxRetries}) - Reason: ${status === 429 ? 'Rate Limit (429)' : 'Server Error/Timeout'}`);
         await new Promise((r) => setTimeout(r, delay));
         continue;
       }
 
       if (
         status === 503 ||
+        status === 429 ||
         err?.response?.data?.error?.status === "UNAVAILABLE"
       ) {
         return {
           functionCalls: null,
-          text: "Hệ thống đang bận. Vui lòng thử lại sau vài phút.",
+          text: "Hệ thống hiện tại đang xử lý quá nhiều yêu cầu. Vui lòng đợi một lát rồi thử lại nhé.",
         };
       }
 
