@@ -4,6 +4,7 @@ import crypto from "crypto";
 import qs from "qs";
 import dotenv from "dotenv";
 import Order from "../models/OrderModel.js";
+import Payment from "../models/PaymentModel.js";
 import Product from "../models/ProductModel.js";
 import mongoose from "mongoose";
 
@@ -31,15 +32,20 @@ export const createPayment = async (req, res) => {
 
     let locale = req.body.language || "vn";
     let currCode = "VND";
-    // Lấy totalPrice từ đơn hàng
-    const order = await Order.findById(orderId);
+    // Lấy totalPrice từ document thanh toán
+    const order = await Order.findById(orderId).populate("payment");
     if (!order) {
       return res
         .status(404)
         .json({ status: "error", message: "Đơn hàng không tồn tại!" });
     }
+    if (!order.payment) {
+        return res
+          .status(404)
+          .json({ status: "error", message: "Thông tin thanh toán không tồn tại!" });
+    }
 
-    let amount = order.totalPrice.toString(); // Thay thế amount từ req.body.amount
+    let amount = order.payment.totalPrice.toString(); // Lấy amount từ Payment thay vì Order
 
     let vnp_Params = {
       vnp_Version: "2.1.0",
@@ -87,6 +93,14 @@ export const vnpayReturn = async (req, res) => {
 
     // 1. Verify signature
     const secureHash = vnp_Params["vnp_SecureHash"];
+    if (!secureHash) {
+      return res.status(400).json({
+        code: "INVALID_REQUEST",
+        message: "Missing vnp_SecureHash in request",
+        data: vnp_Params,
+      });
+    }
+
     delete vnp_Params["vnp_SecureHash"];
     delete vnp_Params["vnp_SecureHashType"];
 
@@ -98,7 +112,7 @@ export const vnpayReturn = async (req, res) => {
       .update(Buffer.from(signData, "utf-8"))
       .digest("hex");
 
-    if (secureHash.toLowerCase() !== signed.toLowerCase()) {
+    if (secureHash.toLowerCase() !== (signed || "").toLowerCase()) {
       return res.status(400).json({
         code: "INVALID_SIGNATURE",
         message: "Invalid checksum",
@@ -112,8 +126,8 @@ export const vnpayReturn = async (req, res) => {
     const transactionId = vnp_Params["vnp_TransactionNo"];
     const amount = vnp_Params["vnp_Amount"] / 100;
 
-    // 3. Tìm đơn hàng bằng _id thay vì orderId nếu bạn dùng _id làm transaction reference
-    const order = await Order.findById(orderId); // Thay đổi quan trọng ở đây
+    // 3. Tìm đơn hàng kèm theo thanh toán
+    const order = await Order.findById(orderId).populate("payment");
 
     if (!order) {
       console.error(`Order not found: ${orderId}`);
@@ -130,19 +144,15 @@ export const vnpayReturn = async (req, res) => {
 
     try {
       if (responseCode === "00") {
-        // Success case
-        order.isPaid = true;
-        order.paidAt = new Date();
-        order.paymentStatus = "paid";
-        order.vnpayTransactionId = transactionId;
-        order.paymentResult = {
-          status: "success",
-          transactionId,
-          amount,
-          bankCode: vnp_Params["vnp_BankCode"],
-          payDate: vnp_Params["vnp_PayDate"],
-          responseCode,
-        };
+        // Success case: Cập nhật lên Document Payment thay vì Order
+        if (order.payment) {
+             order.payment.isPaid = true;
+             order.payment.paidAt = new Date();
+             order.payment.paymentStatus = "paid";
+             order.payment.vnpayTransactionId = transactionId;
+             // Do schema Payment của chúng ta dùng lưu vết giao dịch
+             await order.payment.save({ session });
+        }
 
         if (!order.stockReduced) {
           for (const item of order.orderItems) {
@@ -156,15 +166,10 @@ export const vnpayReturn = async (req, res) => {
         }
       } else {
         // Failed case
-        order.paymentStatus = "failed";
-        order.paymentResult = {
-          status: "failed",
-          transactionId,
-          amount,
-          errorCode: responseCode,
-          message:
-            vnp_Params["vnp_ResponseMessage"] || "Payment rejected by VNPay",
-        };
+        if (order.payment) {
+             order.payment.paymentStatus = "failed";
+             await order.payment.save({ session });
+        }
       }
 
       // 5. Sử dụng save() với session thay vì findOneAndUpdate

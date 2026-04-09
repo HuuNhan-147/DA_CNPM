@@ -1,22 +1,34 @@
 import Order from "../models/OrderModel.js";
 import User from "../models/UserModel.js";
 import Product from "../models/ProductModel.js";
-// ✅ Tạo đơn hàng
+import OrderItem from "../models/OrderItemModel.js";
+import Payment from "../models/PaymentModel.js";
+import mongoose from "mongoose";
+
 export const createOrder = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
     const { orderItems, shippingAddress, paymentMethod } = req.body;
 
     if (!orderItems || orderItems.length === 0) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(400).json({ message: "Không có sản phẩm nào!" });
     }
 
     // Kiểm tra số lượng tồn kho
     for (const item of orderItems) {
-      const product = await Product.findById(item.product);
+      const product = await Product.findById(item.product).session(session);
       if (!product) {
+        await session.abortTransaction();
+        session.endSession();
         return res.status(404).json({ message: `Sản phẩm ${item.name} không tồn tại` });
       }
       if (product.countInStock < item.quantity) {
+        await session.abortTransaction();
+        session.endSession();
         return res.status(400).json({ message: `Sản phẩm ${item.name} không đủ số lượng trong kho (Còn ${product.countInStock})` });
       }
     }
@@ -34,21 +46,60 @@ export const createOrder = async (req, res) => {
 
     const order = new Order({
       user: req.user._id,
-      orderItems,
       shippingAddress,
+      isDelivered: false
+    });
+    const savedOrder = await order.save({ session });
+
+    const payment = new Payment({
+      order: savedOrder._id,
       paymentMethod,
       itemsPrice,
       shippingPrice,
       taxPrice,
       totalPrice,
+      isPaid: false,
+      paymentStatus: "pending"
     });
+    const savedPayment = await payment.save({ session });
 
-    const createdOrder = await order.save();
+    const orderItemDocs = orderItems.map(item => ({
+      order: savedOrder._id,
+      product: item.product,
+      name: item.name,
+      quantity: item.quantity,
+      price: item.price,
+      image: item.image,
+    }));
+    const insertedItems = await OrderItem.insertMany(orderItemDocs, { session });
+    
+    savedOrder.payment = savedPayment._id;
+    savedOrder.orderItems = insertedItems.map(i => i._id);
+    const createdOrder = await savedOrder.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    const populatedOrder = await Order.findById(createdOrder._id)
+      .populate("orderItems")
+      .populate("payment");
+
+    if (req.io) {
+      req.io.emit("new_order", {
+        message: "Có đơn hàng mới được đặt!",
+        orderCode: populatedOrder.orderCode,
+        totalPrice: populatedOrder.payment.totalPrice
+      });
+    }
 
     res
       .status(201)
-      .json({ message: "Đơn hàng đã được tạo!", order: createdOrder });
+      .json({ message: "Đơn hàng đã được tạo!", order: populatedOrder });
   } catch (error) {
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
+    session.endSession();
     res.status(500).json({ message: "Lỗi server!", error: error.message });
   }
 };
@@ -56,7 +107,9 @@ export const createOrder = async (req, res) => {
 // ✅ Lấy danh sách đơn hàng (Admin)
 export const getAllOrders = async (req, res) => {
   try {
-    const orders = await Order.find().populate("user", "name email");
+    const orders = await Order.find()
+       .populate("user", "name email")
+       .populate("payment");
     res.status(200).json(orders);
   } catch (error) {
     res.status(500).json({ message: "Lỗi server!", error: error.message });
@@ -68,29 +121,22 @@ export const getOrderById = async (req, res) => {
     const { id } = req.params; // có thể là _id hoặc orderCode
     let order;
 
-    // ✅ Nếu id là ObjectId (24 ký tự hex)
+    const populateObj = [
+      { path: "user", select: "name email" },
+      { path: "payment" },
+      { path: "orderItems", populate: { path: "product", select: "name image price" } }
+    ];
+
     if (/^[0-9a-fA-F]{24}$/.test(id)) {
-      order = await Order.findById(id)
-        .populate("user", "name email")
-        .populate({
-          path: "orderItems.product",
-          select: "name image price",
-        });
+      order = await Order.findById(id).populate(populateObj);
     } else {
-      // ✅ Nếu không phải ObjectId, tìm theo orderCode
-      order = await Order.findOne({ orderCode: id })
-        .populate("user", "name email")
-        .populate({
-          path: "orderItems.product",
-          select: "name image price",
-        });
+      order = await Order.findOne({ orderCode: id }).populate(populateObj);
     }
 
     if (!order) {
       return res.status(404).json({ message: "Đơn hàng không tồn tại!" });
     }
 
-    // ✅ Kiểm tra quyền truy cập
     if (
       req.user._id.toString() !== order.user._id.toString() &&
       !req.user.isAdmin
@@ -100,21 +146,19 @@ export const getOrderById = async (req, res) => {
         .json({ message: "Bạn không có quyền xem đơn hàng này!" });
     }
 
-    // ✅ Xác định trạng thái đơn hàng
     let status = "Chờ thanh toán";
-    if (order.isPaid && order.isDelivered) {
+    if (order.payment?.isPaid && order.isDelivered) {
       status = "Đã giao hàng";
-    } else if (order.isPaid) {
+    } else if (order.payment?.isPaid) {
       status = "Đã thanh toán";
     }
 
-    // ✅ Chuẩn hóa dữ liệu trả về
     const orderData = {
       id: order._id,
       orderCode: order.orderCode,
       status,
-      paymentMethod: order.paymentMethod,
-      isPaid: order.isPaid,
+      paymentMethod: order.payment?.paymentMethod,
+      isPaid: order.payment?.isPaid,
       isDelivered: order.isDelivered,
       createdAt: order.createdAt,
       user: {
@@ -128,7 +172,10 @@ export const getOrderById = async (req, res) => {
         price: item.price,
         image: item.product?.image || item.image || "",
       })),
-      totalPrice: order.totalPrice,
+      totalPrice: order.payment?.totalPrice,
+      itemsPrice: order.payment?.itemsPrice,
+      shippingPrice: order.payment?.shippingPrice,
+      taxPrice: order.payment?.taxPrice,
     };
 
     res
@@ -139,18 +186,22 @@ export const getOrderById = async (req, res) => {
     res.status(500).json({ message: "Lỗi server!", error: error.message });
   }
 };
-
 // ✅ Cập nhật trạng thái thanh toán
 export const updateOrderToPaid = async (req, res) => {
   try {
-    const order = await Order.findById(req.params.id);
+    const order = await Order.findById(req.params.id)
+       .populate("payment")
+       .populate("orderItems");
 
-    if (!order) {
-      return res.status(404).json({ message: "Đơn hàng không tồn tại!" });
+    if (!order || !order.payment) {
+      return res.status(404).json({ message: "Đơn hàng hoặc thanh toán không tồn tại!" });
     }
 
-    order.isPaid = true;
-    order.paidAt = Date.now();
+    const payment = order.payment;
+    payment.isPaid = true;
+    payment.paidAt = Date.now();
+    payment.paymentStatus = "paid";
+    await payment.save();
 
     if (!order.stockReduced) {
       for (const item of order.orderItems) {
@@ -205,16 +256,16 @@ export const getUserOrders = async (req, res) => {
     // Lấy tất cả đơn hàng của người dùng từ database
     const orders = await Order.find({ user: req.user._id })
       .populate({
-        path: "orderItems.product",
-        select: "name price image", // Lấy thông tin sản phẩm bao gồm cả hình ảnh
-        model: "Product", // Chỉ định model cần populate
+        path: "orderItems",
+        populate: { path: "product", select: "name image price" }
       })
       .populate("user", "name email")
+      .populate("payment")
       .sort({ createdAt: -1 });
 
     // Nếu không có đơn hàng nào
     if (orders.length === 0) {
-      return res.status(404).json({ message: "Không có đơn hàng nào!" });
+      return res.status(200).json({ orders: [] });
     }
 
     // Xử lý dữ liệu đơn hàng
@@ -224,21 +275,27 @@ export const getUserOrders = async (req, res) => {
       const itemMap = new Map();
 
       order.orderItems.forEach((item) => {
-        if (item.product && item.product._id) {
-          if (itemMap.has(item.product._id.toString())) {
+        if (!item) return;
+
+        // Fallback linh hoạt: Dù là ObjectId ref hay Embedded Object cũng lấy được id
+        const productId = item.product && item.product._id ? item.product._id : item.product;
+        
+        if (productId) {
+          const idString = productId.toString();
+          if (itemMap.has(idString)) {
             // Nếu sản phẩm đã tồn tại, cập nhật số lượng
-            const existingItem = itemMap.get(item.product._id.toString());
+            const existingItem = itemMap.get(idString);
             existingItem.quantity += item.quantity;
           } else {
-            // Nếu sản phẩm chưa tồn tại, thêm mới
+            // Nếu sản phẩm chưa tồn tại, thêm mới (Hỗ trợ nhặt thông tin product từ 2 cấp)
             const newItem = {
-              productId: item.product._id,
-              productName: item.product.name,
+              productId: productId,
+              productName: (item.product && item.product.name) ? item.product.name : item.name,
               price: item.price,
               quantity: item.quantity,
-              image: item.product.image,
+              image: (item.product && item.product.image) ? item.product.image : item.image,
             };
-            itemMap.set(item.product._id.toString(), newItem);
+            itemMap.set(idString, newItem);
             uniqueItems.push(newItem);
           }
         }
@@ -252,12 +309,12 @@ export const getUserOrders = async (req, res) => {
         status: order.status,
         orderItems: uniqueItems,
         shippingAddress: order.shippingAddress,
-        paymentMethod: order.paymentMethod,
-        shippingPrice: order.shippingPrice,
-        taxPrice: order.taxPrice,
-        totalPrice: order.totalPrice,
-        isPaid: order.isPaid,
-        paidAt: order.paidAt,
+        paymentMethod: order.payment?.paymentMethod,
+        shippingPrice: order.payment?.shippingPrice,
+        taxPrice: order.payment?.taxPrice,
+        totalPrice: order.payment?.totalPrice,
+        isPaid: order.payment?.isPaid,
+        paidAt: order.payment?.paidAt,
         isDelivered: order.isDelivered,
         deliveredAt: order.deliveredAt,
       };
@@ -278,13 +335,12 @@ export const getUserOrders = async (req, res) => {
 // ✅ Xóa đơn hàng (Admin hoặc chủ sở hữu đơn hàng)
 export const deleteOrder = async (req, res) => {
   try {
-    const order = await Order.findById(req.params.id);
+    const order = await Order.findById(req.params.id).populate("orderItems");
 
     if (!order) {
       return res.status(404).json({ message: "Đơn hàng không tồn tại!" });
     }
 
-    // Kiểm tra quyền xóa: Admin hoặc chủ sở hữu đơn hàng
     if (
       req.user._id.toString() !== order.user._id.toString() &&
       !req.user.isAdmin
@@ -294,7 +350,6 @@ export const deleteOrder = async (req, res) => {
         .json({ message: "Bạn không có quyền xóa đơn hàng này!" });
     }
 
-    // Cộng lại stock nếu đã giảm
     if (order.stockReduced) {
       for (const item of order.orderItems) {
         const product = await Product.findById(item.product);
@@ -305,7 +360,9 @@ export const deleteOrder = async (req, res) => {
       }
     }
 
-    await order.deleteOne(); // Xóa đơn hàng
+    await OrderItem.deleteMany({ order: order._id });
+    await Payment.deleteMany({ order: order._id });
+    await order.deleteOne();
 
     res.status(200).json({ message: "Đơn hàng đã được xóa thành công!" });
   } catch (error) {
@@ -316,14 +373,14 @@ export const updateOrderStatus = async (req, res) => {
   const { isPaid, isDelivered } = req.body; // Lấy trạng thái thanh toán và giao hàng từ body
 
   try {
-    const order = await Order.findById(req.params.id); // Lấy đơn hàng theo ID
+    const order = await Order.findById(req.params.id).populate("payment").populate("orderItems");
 
     if (!order) {
       return res.status(404).json({ message: "Đơn hàng không tồn tại!" });
     }
 
-    // Cập nhật trạng thái thanh toán (nếu có)
-    if (isPaid !== undefined) {
+    if (isPaid !== undefined && order.payment) {
+      const payment = order.payment;
       if (isPaid && !order.stockReduced) {
         for (const item of order.orderItems) {
           const product = await Product.findById(item.product);
@@ -334,14 +391,14 @@ export const updateOrderStatus = async (req, res) => {
         }
         order.stockReduced = true;
       }
-      order.isPaid = isPaid;
-      order.paidAt = isPaid ? Date.now() : null; // Cập nhật thời gian thanh toán
+      payment.isPaid = isPaid;
+      payment.paidAt = isPaid ? Date.now() : null;
+      await payment.save();
     }
 
-    // Cập nhật trạng thái giao hàng (nếu có)
     if (isDelivered !== undefined) {
       order.isDelivered = isDelivered;
-      order.deliveredAt = isDelivered ? Date.now() : null; // Cập nhật thời gian giao hàng
+      order.deliveredAt = isDelivered ? Date.now() : null;
     }
 
     const updatedOrder = await order.save(); // Lưu cập nhật

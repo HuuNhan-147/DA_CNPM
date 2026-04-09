@@ -1,5 +1,7 @@
 import Product from "../models/ProductModel.js";
 import Category from "../models/CategoryModel.js";
+import Review from "../models/ReviewModel.js";
+import Specification from "../models/SpecificationModel.js";
 import asyncHandler from "express-async-handler";
 
 /* ======================
@@ -18,7 +20,10 @@ const parseFormData = (data) => {
 ====================== */
 export const getAllProducts = async (req, res) => {
   try {
-    const products = await Product.find().populate("category", "name");
+    const products = await Product.find()
+      .populate("category", "name")
+      .populate("specifications")
+      .populate("reviews");
 
     const updatedProducts = products.map((product) => ({
       ...product._doc,
@@ -40,7 +45,9 @@ export const getAllProducts = async (req, res) => {
 export const getProductById = async (req, res) => {
   try {
     const product = await Product.findById(req.params.id)
-      .populate("category", "name");
+      .populate("category", "name")
+      .populate("specifications")
+      .populate("reviews");
 
     if (!product) {
       return res.status(404).json({ message: "Sản phẩm không tồn tại!" });
@@ -103,8 +110,19 @@ export const createProduct = asyncHandler(async (req, res) => {
     rating: Number(rating),
     countInStock: Number(countInStock),
     description: description?.trim() || "",
-    specifications: parsedSpecifications,
   });
+
+  let specIds = [];
+  if (parsedSpecifications.length > 0) {
+    const specsToInsert = parsedSpecifications.map(s => ({
+      ...s,
+      product: product._id
+    }));
+    const insertedDocs = await Specification.insertMany(specsToInsert);
+    specIds = insertedDocs.map(d => d._id);
+  }
+
+  product.specifications = specIds;
 
   const savedProduct = await product.save();
 
@@ -148,7 +166,17 @@ export const updateProduct = asyncHandler(async (req, res) => {
     if (typeof specifications === "string") {
       specifications = JSON.parse(specifications);
     }
-    product.specifications = specifications;
+    await Specification.deleteMany({ product: product._id });
+    if (specifications && specifications.length > 0) {
+      const specsToInsert = specifications.map(s => ({
+        ...s,
+        product: product._id
+      }));
+      const insertedDocs = await Specification.insertMany(specsToInsert);
+      product.specifications = insertedDocs.map(d => d._id);
+    } else {
+      product.specifications = [];
+    }
   }
 
   if (category !== undefined) {
@@ -180,11 +208,13 @@ export const deleteProduct = async (req, res) => {
   if (!product) {
     return res.status(404).json({ message: "Sản phẩm không tồn tại!" });
   }
+  await Specification.deleteMany({ product: req.params.id });
+  await Review.deleteMany({ product: req.params.id });
   res.json({ message: "Xóa sản phẩm thành công!" });
 };
 
 /* ======================
-   6. SEARCH / FILTER
+6. SEARCH / FILTER
 ====================== */
 export const getProducts = asyncHandler(async (req, res) => {
   const { keyword, category, minPrice, maxPrice, rating, sortBy } = req.query;
@@ -213,7 +243,11 @@ export const getProducts = asyncHandler(async (req, res) => {
   if (sortBy === "priceHighLow") sortOption.price = -1;
   if (sortBy === "latest") sortOption.createdAt = -1;
 
-  const products = await Product.find(filter).sort(sortOption);
+  const products = await Product.find(filter)
+    .sort(sortOption)
+    .populate("category", "name")
+    .populate("specifications")
+    .populate("reviews");
   res.json(products);
 });
 
@@ -222,7 +256,7 @@ export const getProducts = asyncHandler(async (req, res) => {
 ====================== */
 export const addReview = asyncHandler(async (req, res) => {
   const { rating, comment } = req.body;
-  const product = await Product.findById(req.params.id);
+  const product = await Product.findById(req.params.id).populate("reviews");
 
   if (!product) {
     return res.status(404).json({ message: "Không tìm thấy sản phẩm!" });
@@ -236,17 +270,23 @@ export const addReview = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "Bạn đã đánh giá sản phẩm này!" });
   }
 
-  const review = {
+  const review = new Review({
+    product: product._id,
     user: req.user._id,
     name: req.user.name,
     rating: Number(rating),
     comment,
-  };
+  });
 
-  product.reviews.push(review);
+  const savedReview = await review.save();
+
+  product.reviews.push(savedReview._id);
   product.numReviews = product.reviews.length;
+  
+  // Calculate new rating
+  const allReviews = await Review.find({ product: product._id });
   product.rating =
-    product.reviews.reduce((acc, item) => acc + item.rating, 0) /
+    allReviews.reduce((acc, item) => acc + item.rating, 0) /
     product.numReviews;
 
   await product.save();
@@ -257,7 +297,7 @@ export const addReview = asyncHandler(async (req, res) => {
    8. GET REVIEWS
 ====================== */
 export const getReviews = asyncHandler(async (req, res) => {
-  const product = await Product.findById(req.params.id).select("reviews");
+  const product = await Product.findById(req.params.id).populate("reviews");
   if (!product) {
     return res.status(404).json({ message: "Không tìm thấy sản phẩm!" });
   }
