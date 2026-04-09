@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+/* @keyframes để làm hiệu ứng chạy ngang */
+
+/* Hiệu ứng bùng nổ cho chữ "Hot" */
+@keyframes explode {
+  0% {
+    transform: scale(0) rotate(0deg);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.5) rotate(180deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) rotate(360deg);
+    opacity: 1;
+  }
+}
+
+/* Chỉnh lại kiểu hiển thị cho "Hot" với nền màu đỏ */
+.hot-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  color: white;
+  font-weight: bold;
+  text-transform: uppercase;
+  font-size: 16px;
+  padding: 10px 15px;
+  border-radius: 12px;
+  z-index: 10;
+  animation: explode 1.5s ease-out forwards;
+  animation-delay: 0.5s;
+
+  /* Thay đổi nền thành màu đỏ */
+  background: red;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+/* Chỉnh sửa phần giá tiền */
+.price {
+  font-size: 1.5rem; /* Phóng to kích thước chữ */
+  font-weight: bold;
+  color: red; /* Chỉnh màu đỏ */
+  transition: all 0.3s ease; /* Hiệu ứng chuyển đổi khi hover */
+}
+
+.price:hover {
+  transform: scale(1.2); /* Hiệu ứng phóng to khi hover */
+}
+.rating {
+  font-size: 1.5rem; /* Phóng to đánh giá sao */
+  color: #ffd700; /* Màu vàng gold */
+  font-weight: bold;
+}
+
+.note {
+  font-size: 1.2rem; /* Phóng to ghi chú */
+  font-weight: bold;
+  color: #333; /* Màu chữ đậm hơn */
+}
