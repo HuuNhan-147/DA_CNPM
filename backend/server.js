@@ -7,6 +7,11 @@ import path from "path";
 import routes from "./routes/index.js";
 import { connectRedis, disconnectRedis } from "./config/redis.js";
 import cors from "cors";
+import dns from "dns";
+
+// fix lỗi MongoDB SRV ECONNREFUSED
+dns.setDefaultResultOrder("ipv4first");
+dns.setServers(["8.8.8.8", "8.8.4.4"]);
 dotenv.config();
 
 const app = express();

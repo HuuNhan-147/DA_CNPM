@@ -189,10 +189,8 @@ const CreateOrderPage: React.FC = () => {
           <form onSubmit={handleSubmit} className="divide-y divide-gray-200">
             {/* Shipping Information */}
             <div className="px-6 py-5">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">
-                Thông tin giao hàng
-              </h3>
-
+              <h3 className="text-lg font-medium text-gray-900 mb-4"></h3>
+              Thông tin giao hàng
               <div className="grid grid-cols-1 gap-y-4 gap-x-6 sm:grid-cols-2">
                 <div>
                   <label
@@ -265,7 +263,6 @@ const CreateOrderPage: React.FC = () => {
                     required
                   />
                 </div>
-
                 <div>
                   <label
                     htmlFor="country"
@@ -392,7 +389,7 @@ const CreateOrderPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Submit Button */}
+           {/* Submit Button */}
             <div className="px-6 py-4 bg-gray-50 text-right">
               <button
                 type="submit"

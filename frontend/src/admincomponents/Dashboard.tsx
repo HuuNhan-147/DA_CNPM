@@ -159,7 +159,7 @@ const Dashboard: React.FC = () => {
                       <span className="text-sm font-semibold">
                         {count} {status !== "total" && "đơn"}
                       </span>
-                    </div>
+                      </div>
                   )
                 )}
             </div>
@@ -234,10 +234,9 @@ const Dashboard: React.FC = () => {
 
           {/* Latest Users */}
           <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
-              <span className="bg-indigo-100 p-2 rounded-full mr-3">👥</span>
+            <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center"></h2>
+            <span className="bg-indigo-100 p-2 rounded-full mr-3">👥</span>
               Người dùng mới
-            </h2>
             <div className="space-y-4">
               {latestUsers.map((user) => (
                 <div key={user._id} className="flex items-center space-x-4">

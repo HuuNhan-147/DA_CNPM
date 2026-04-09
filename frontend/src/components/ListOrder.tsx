@@ -178,7 +178,7 @@ const ListOrder: React.FC = () => {
                 onClick={() => setActiveTab(tab.id)}
                 className={`px-6 py-3 rounded-lg text-sm font-medium transition-all duration-200 whitespace-nowrap ${
                   activeTab === tab.id
-                    ? "bg-indigo-50 text-indigo-700 shadow-sm"
+                  ? "bg-indigo-50 text-indigo-700 shadow-sm"
                     : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
                 }`}
               >

@@ -232,7 +232,7 @@ const ProductDetail: React.FC = () => {
                     {/* Price */}
                      <div className="flex items-end space-x-4 mb-6">
                         <span className="text-4xl font-bold text-indigo-600">
-                            {product?.price.toLocaleString()}đ
+                          {product?.price.toLocaleString()}đ
                         </span>
                         {/* Example original price if we had it */}
                         {/* <span className="text-lg text-gray-400 line-through mb-1">25.000.000đ</span> */}
@@ -284,7 +284,7 @@ const ProductDetail: React.FC = () => {
                         <div key={index} className="flex justify-between py-3 border-b border-gray-100 last:border-0 hover:bg-gray-50 transition px-2 rounded-lg">
                              <span className="text-gray-500 font-medium">{spec.key}</span>
                              <span className="text-gray-900 font-semibold text-right">
-                                 {spec.value} {spec.unit && <span className="text-gray-400 text-sm ml-1">{spec.unit}</span>}
+                              {spec.value} {spec.unit && <span className="text-gray-400 text-sm ml-1">{spec.unit}</span>}
                              </span>
                         </div>
                      ))}
@@ -332,7 +332,7 @@ const ProductDetail: React.FC = () => {
                                                 year: "numeric", month: "long", day: "numeric"
                                             })}
                                         </p>
-                                    </div>
+                                        </div>
                                 </div>
                                 <div className="flex text-yellow-400 bg-yellow-50 px-2 py-1 rounded-lg">
                                     {[...Array(5)].map((_, i) => (
@@ -381,7 +381,7 @@ const ProductDetail: React.FC = () => {
                             onClick={handleReviewSubmit}
                             disabled={hasReviewed}
                             className={`w-full py-3 rounded-xl font-bold shadow-lg transition transform active:scale-95 ${
-                                hasReviewed
+                              hasReviewed
                                 ? "bg-gray-200 text-gray-500 cursor-not-allowed shadow-none"
                                 : "bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-200"
                             }`}
