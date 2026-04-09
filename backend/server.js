@@ -5,6 +5,8 @@ import path from "path";
 import routes from "./routes/index.js";
 import { connectRedis, disconnectRedis } from "./config/redis.js";
 import cors from "cors";
+import dns from "dns";
+dns.setServers(["1.1.1.1","8.8.8.8"]);
 dotenv.config();
 
 const app = express();
