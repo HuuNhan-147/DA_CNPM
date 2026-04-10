@@ -42,11 +42,7 @@ const ProductDetail: React.FC = () => {
       if (passedProduct) {
         const updatedProduct = {
           ...passedProduct,
-          image: passedProduct.image
-            ? passedProduct.image.startsWith("http")
-              ? passedProduct.image
-              : `http://localhost:5000${passedProduct.image}`
-            : "http://localhost:5000/uploads/no-image.png",
+          image: passedProduct.image || "/images/no-image.png",
         };
         setProduct(updatedProduct);
         setLoading(false);

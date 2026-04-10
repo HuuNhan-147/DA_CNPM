@@ -1,4 +1,6 @@
 import express from "express";
+import http from "http";
+import { Server } from "socket.io";
 import dotenv from "dotenv";
 import mongoose from "mongoose";
 import path from "path";
@@ -10,6 +12,30 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT;
 const MONGO_URI = process.env.MONGO_URI;
+
+// ✅ Khởi tạo HTTP Server & Socket.io
+const httpServer = http.createServer(app);
+const io = new Server(httpServer, {
+  cors: {
+    origin: ["http://localhost:5173"],
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true,
+  },
+});
+
+io.on("connection", (socket) => {
+  console.log("🟢 Một người dùng đã kết nối Socket.IO:", socket.id);
+  socket.on("disconnect", () => {
+    console.log("🔴 Người dùng đã thoát:", socket.id);
+  });
+});
+
+// ✅ Middleware gán io chạy xuyên suốt app
+app.use((req, res, next) => {
+  req.io = io;
+  next();
+});
+
 app.use(
   cors({
     origin: [
@@ -36,8 +62,9 @@ mongoose
       .then(() => console.log('Redis initialized'))
       .catch((err) => console.warn('Redis not initialized:', err.message));
 
-    app.listen(PORT, () => {
+    httpServer.listen(PORT, () => {
       console.log(`Server is running on port ${PORT}`);
+      console.log(`Socket.IO is ready!`);
     });
   })
   .catch((error) => {

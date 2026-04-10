@@ -214,7 +214,7 @@ const Dashboard: React.FC = () => {
                         {order.user?.name || "Khách"}
                       </p>
                       <p className="text-sm text-gray-500">
-                        ₫{order.totalPrice.toLocaleString("vi-VN")}
+                        ₫{((order as any).payment?.totalPrice || order.totalPrice || 0).toLocaleString("vi-VN")}
                       </p>
                     </div>
                     <span

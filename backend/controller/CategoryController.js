@@ -1,82 +1,50 @@
 import asyncHandler from "express-async-handler";
-import Category from "../models/CategoryModel.js";
+import * as categoryService from "../services/CategoryService.js";
 
-// 🔹 API lấy danh sách danh mục
 export const getCategories = asyncHandler(async (req, res) => {
   try {
-    const categories = await Category.find({}, "name description"); // Chỉ lấy tên danh mục
+    const categories = await categoryService.getCategories();
     res.status(200).json(categories);
   } catch (error) {
     res.status(500).json({ message: "Lỗi server!", error: error.message });
   }
 });
-// ✅ Lấy danh mục theo ID
+
 export const getCategoryById = asyncHandler(async (req, res) => {
-  const category = await Category.findById(req.params.id);
-  if (category) {
+  try {
+    const category = await categoryService.getCategoryById(req.params.id);
     res.json(category);
-  } else {
-    res.status(404).json({ message: "Danh mục không tồn tại!" });
+  } catch (error) {
+    res.status(404).json({ message: error.message });
   }
 });
 
-// ✅ Thêm danh mục (Chỉ Admin)
 export const createCategory = asyncHandler(async (req, res) => {
   const { name, description } = req.body;
-
-  // Kiểm tra tên có hợp lệ không
-  if (!name) {
-    return res.status(400).json({ message: "Tên là bắt buộc!" });
-  }
-
-  // Kiểm tra xem danh mục đã tồn tại chưa
-  const categoryExists = await Category.findOne({ name });
-  if (categoryExists) {
-    return res.status(400).json({ message: "Danh mục đã tồn tại!" });
-  }
-
-  // Tạo mới danh mục
-  const category = new Category({
-    name,
-    description: description || "", // Nếu không có mô tả, mặc định là chuỗi rỗng
-  });
-
   try {
-    const createdCategory = await category.save();
+    const createdCategory = await categoryService.createCategory(name, description);
     res.status(201).json(createdCategory);
   } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Lỗi khi tạo danh mục!", error: error.message });
+    const status = error.message === "Tên là bắt buộc!" || error.message === "Danh mục đã tồn tại!" ? 400 : 500;
+    res.status(status).json({ message: error.message });
   }
 });
 
-// ✅ Cập nhật danh mục (Chỉ Admin)
-// ✅ Cập nhật danh mục (Chỉ Admin)
 export const updateCategory = asyncHandler(async (req, res) => {
   const { name, description } = req.body;
-  const category = await Category.findById(req.params.id);
-
-  if (!category) {
-    return res.status(404).json({ message: "Danh mục không tồn tại!" });
+  try {
+    const updatedCategory = await categoryService.updateCategory(req.params.id, name, description);
+    res.json(updatedCategory);
+  } catch (error) {
+    res.status(error.message === "Danh mục không tồn tại!" ? 404 : 500).json({ message: error.message });
   }
-
-  // Cập nhật thông tin khác
-  category.name = name || category.name;
-  category.description = description || category.description; // Mô tả không bắt buộc
-
-  const updatedCategory = await category.save();
-  res.json(updatedCategory);
 });
 
-// ✅ Xóa danh mục (Chỉ Admin)
 export const deleteCategory = asyncHandler(async (req, res) => {
-  const category = await Category.findById(req.params.id);
-
-  if (!category) {
-    return res.status(404).json({ message: "Danh mục không tồn tại!" });
+  try {
+    await categoryService.deleteCategory(req.params.id);
+    res.json({ message: "Danh mục đã được xóa!" });
+  } catch (error) {
+    res.status(error.message === "Danh mục không tồn tại!" ? 404 : 500).json({ message: error.message });
   }
-
-  await category.deleteOne();
-  res.json({ message: "Danh mục đã được xóa!" });
 });

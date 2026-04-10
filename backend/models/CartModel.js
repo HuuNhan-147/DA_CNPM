@@ -9,19 +9,8 @@ const cartSchema = new mongoose.Schema(
     },
     cartItems: [
       {
-        product: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "Product", // Liên kết với bảng Product
-          required: true,
-        },
-        name: String,
-        quantity: {
-          type: Number,
-          required: true,
-          default: 1,
-        },
-        price: Number,
-        image: String,
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "CartItem",
       },
     ],
   },

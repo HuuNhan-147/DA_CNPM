@@ -180,7 +180,7 @@ const AdminOrderManager: React.FC = () => {
                 <td className="p-2 border">{order.orderCode}</td>
                 <td className="p-2">{order.user?.name || "Không xác định"}</td>
                 <td className="p-2 border">
-                  {order.totalPrice.toLocaleString()}đ
+                  {((order as any).payment?.totalPrice || order.totalPrice || 0).toLocaleString()}đ
                 </td>
                 <td className="p-2 border">
                   {order.isPaid ? (

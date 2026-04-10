@@ -1,50 +1,6 @@
 import mongoose from "mongoose";
 
-/* =======================
-   REVIEW SCHEMA
-======================= */
-const reviewSchema = new mongoose.Schema(
-  {
-    user: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-    },
-    name: { type: String, required: true },      // tên người đánh giá
-    rating: {
-      type: Number,
-      required: true,
-      min: 1,
-      max: 5,
-    },
-    comment: { type: String, required: true },   // nội dung đánh giá
-  },
-  { timestamps: true }
-);
 
-/* =======================
-   SPECIFICATION SCHEMA
-   (THÔNG SỐ KỸ THUẬT)
-======================= */
-const specificationSchema = new mongoose.Schema(
-  {
-    key: {
-      type: String,
-      required: true,        // VD: RAM, CPU, Pin
-    },
-    value: {
-      type: String,
-      required: true,        // VD: 16, A17 Pro
-    },
-    unit: {
-      type: String,          // VD: GB, mAh, inch
-    },
-    group: {
-      type: String,          // VD: Cấu hình, Màn hình
-    },
-  },
-  { _id: false }
-);
 
 /* =======================
    PRODUCT SCHEMA
@@ -86,7 +42,12 @@ const productSchema = new mongoose.Schema(
     },
 
     /* ⭐ THÔNG SỐ KỸ THUẬT */
-    specifications: [specificationSchema],
+    specifications: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Specification",
+      },
+    ],
 
     /* ⭐ ĐÁNH GIÁ */
     rating: {
@@ -99,7 +60,12 @@ const productSchema = new mongoose.Schema(
       default: 0,
     },
 
-    reviews: [reviewSchema],
+    reviews: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Review",
+      },
+    ],
   },
   { timestamps: true }
 );

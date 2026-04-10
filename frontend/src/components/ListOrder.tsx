@@ -275,7 +275,7 @@ const ListOrder: React.FC = () => {
                      <div className="w-full md:w-auto flex flex-col items-end gap-4">
                         <div className="flex items-center gap-2">
                              <span className="text-gray-600">Tổng tiền:</span>
-                             <span className="text-xl font-bold text-indigo-600">{order.totalPrice.toLocaleString("vi-VN")}đ</span>
+                             <span className="text-xl font-bold text-indigo-600">{(order.totalPrice || 0).toLocaleString("vi-VN")}đ</span>
                         </div>
 
                         <div className="flex gap-3 w-full md:w-auto">

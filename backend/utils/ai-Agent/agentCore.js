@@ -1,5 +1,6 @@
 // utils/aiAgent/agentCore.js
 import axios from "axios";
+import https from "https";
 import { tools, getToolDeclarations } from "./toolRegistry.js";
 import redisChatService from "../../services/redisChatService.js";
 import { processInput, getSessionSummary } from "./contextManager.js";
@@ -8,7 +9,10 @@ import SYSTEM_INSTRUCTION from "./promptTemplates.js"; // ✅ IMPORT PROMPT TỪ
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent";
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent";
+
+// Tối ưu network: Tái sử dụng TCP connection để giảm độ trễ SSL handshake
+const httpsAgent = new https.Agent({ keepAlive: true });
 
 /**
  * ✅ MAIN AGENT với Context Loading từ Redis + ENHANCED LOGGING
@@ -61,7 +65,7 @@ export async function runAgent(
 
       // TỐI ƯU HÓA: Chạy 3 tác vụ Async độc lập (lấy tin nhắn, lấy tóm tắt, xử lý input) CÙNG LÚC để giảm độ trễ
       const [recentMessagesResult, processedResult, sessionSummaryResult] = await Promise.allSettled([
-        redisChatService.getMessages(userId, currentSessionId, 15, 0),
+        redisChatService.getMessages(userId, currentSessionId, 8, 0), // TỐI ƯU HÓA: Giảm context từ 15 xuống 8 để giảm gánh nặng payload
         processInput(normalizedMessage, userId, currentSessionId),
         getSessionSummary(userId, currentSessionId)
       ]);
@@ -320,19 +324,8 @@ export async function runAgent(
 function buildContents(message, conversationHistory) {
   const contents = [];
 
-  // System instruction
-  contents.push({
-    role: "user",
-    parts: [{ text: SYSTEM_INSTRUCTION }],
-  });
-  contents.push({
-    role: "model",
-    parts: [
-      {
-        text: "Tôi hiểu rõ! Tôi sẽ thực hiện các CRITICAL RULES ngay lập tức: Gọi search_products khi user tìm sản phẩm, gọi get_cart() trước khi tạo đơn hàng, thực hiện quy trình tự động không chờ đợi.",
-      },
-    ],
-  });
+  // TỐI ƯU HÓA: Không truyền SYSTEM_INSTRUCTION dưới dạng "user message" nữa
+  // Điều này giúp tiết kiệm Token và tránh việc Context bị tính lại trong mỗi vòng lặp.
 
   conversationHistory.forEach((msg) => {
     if (msg.role === "system") {
@@ -446,19 +439,23 @@ async function callGemini(contents, functionDeclarations) {
         `🔌 Calling Gemini API (attempt ${attempt}/${maxRetries})...`
       );
 
+      const payload = {
+        system_instruction: { parts: [{ text: SYSTEM_INSTRUCTION }] }, // TỐI ƯU CỰC MẠNH: Đặt System Prompt ở ngoài để dùng chung bộ Cache của AI Model
+        contents,
+        tools: [{ functionDeclarations }],
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 2000,
+        },
+      };
+
       const response = await axios.post(
         `${GEMINI_URL}?key=${GEMINI_API_KEY}`,
-        {
-          contents,
-          tools: [{ functionDeclarations }],
-          generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: 2000,
-          },
-        },
+        payload,
         {
           headers: { "Content-Type": "application/json" },
-          timeout: 30000,
+          timeout: 60000, // Tối ưu: Tăng timeout từ 30s -> 60s
+          httpsAgent: httpsAgent, // Tối ưu: Tái sử dụng kết nối
         }
       );
 
