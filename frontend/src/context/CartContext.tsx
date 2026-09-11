@@ -13,20 +13,31 @@ import {
 } from "../api/CartApi";
 import { useAuth } from "./AuthContext";
 
-// Kiểu dữ liệu cho mỗi item trong giỏ hàng
+// Kiểu dữ liệu cho mỗi item trong giỏ hàng (chứa chi tiết sản phẩm)
 export interface CartItem {
-  productId: string;
+  product: {
+    _id: string;
+    name: string;
+    price: number;
+    image: string;
+    countInStock: number;
+  };
   quantity: number;
 }
 
 // Định nghĩa kiểu dữ liệu cho Context
 interface CartContextType {
   cartItems: CartItem[];
+  itemsPrice: number;
+  shippingPrice: number;
+  taxPrice: number;
+  totalPrice: number;
   addToCart: (productId: string, quantity: number) => Promise<void>;
   removeFromCart: (productId: string) => Promise<void>;
   updateQuantity: (productId: string, quantity: number) => Promise<void>;
   fetchCart: () => Promise<void>;
   getCartItemCount: () => number;
+  clearCartState: () => void;
 }
 
 // Tạo Context
@@ -45,46 +56,57 @@ export const useCart = () => {
 export const CartProvider: React.FC<{ children: ReactNode }> = ({
   children,
 }) => {
-  const [cartItems, setCartItems] = useState<CartItem[]>([]); // Giá trị mặc định là mảng trống
-  const { getToken } = useAuth(); // Lấy token từ AuthContext
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [itemsPrice, setItemsPrice] = useState<number>(0);
+  const [shippingPrice, setShippingPrice] = useState<number>(0);
+  const [taxPrice, setTaxPrice] = useState<number>(0);
+  const [totalPrice, setTotalPrice] = useState<number>(0);
+
+  const { token } = useAuth(); // Theo dõi token thay đổi trực tiếp
+
+  const updateLocalCartState = (data: any) => {
+    if (data?.cart) {
+      setCartItems(data.cart.cartItems || []);
+      setItemsPrice(data.itemsPrice || 0);
+      setShippingPrice(data.shippingPrice || 0);
+      setTaxPrice(data.taxPrice || 0);
+      setTotalPrice(data.totalPrice || 0);
+    } else {
+      clearCartState();
+    }
+  };
+
+  const clearCartState = () => {
+    setCartItems([]);
+    setItemsPrice(0);
+    setShippingPrice(0);
+    setTaxPrice(0);
+    setTotalPrice(0);
+  };
 
   // Fetch giỏ hàng
   const fetchCart = async () => {
-    const token = getToken();
-    if (!token) return;
+    if (!token) {
+      clearCartState();
+      return;
+    }
 
     try {
-      const data = await getCart(token);
-      if (data?.cartItems) {
-        setCartItems(data.cartItems); // Cập nhật giỏ hàng từ API
-      }
+      const data = await getCart();
+      updateLocalCartState(data);
     } catch (error) {
       console.error("Lỗi khi lấy giỏ hàng:", error);
+      clearCartState();
     }
   };
 
   // Thêm sản phẩm vào giỏ hàng
   const addToCart = async (productId: string, quantity: number) => {
-    const token = getToken();
     if (!token) return;
 
     try {
-      await apiAddToCart(productId, quantity, token);
-      // Cập nhật giỏ hàng sau khi thêm sản phẩm
-      setCartItems((prevCartItems) => {
-        const existingItem = prevCartItems.find(
-          (item) => item.productId === productId
-        );
-        if (existingItem) {
-          return prevCartItems.map((item) =>
-            item.productId === productId
-              ? { ...item, quantity: item.quantity + quantity }
-              : item
-          );
-        } else {
-          return [...prevCartItems, { productId, quantity }];
-        }
-      });
+      const data = await apiAddToCart(productId, quantity);
+      updateLocalCartState(data);
     } catch (error) {
       console.error("Lỗi khi thêm vào giỏ hàng:", error);
     }
@@ -92,15 +114,11 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({
 
   // Xóa sản phẩm khỏi giỏ hàng
   const removeFromCart = async (productId: string) => {
-    const token = getToken();
     if (!token) return;
 
     try {
-      await apiRemoveFromCart(productId, token);
-      // Cập nhật giỏ hàng sau khi xóa sản phẩm
-      setCartItems((prevCartItems) =>
-        prevCartItems.filter((item) => item.productId !== productId)
-      );
+      const data = await apiRemoveFromCart(productId);
+      updateLocalCartState(data);
     } catch (error) {
       console.error("Lỗi khi xóa khỏi giỏ hàng:", error);
     }
@@ -108,17 +126,11 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({
 
   // Cập nhật số lượng sản phẩm trong giỏ hàng
   const updateQuantity = async (productId: string, quantity: number) => {
-    const token = getToken();
     if (!token) return;
 
     try {
-      await apiUpdateCartItem(productId, quantity, token);
-      // Cập nhật giỏ hàng sau khi sửa số lượng
-      setCartItems((prevCartItems) =>
-        prevCartItems.map((item) =>
-          item.productId === productId ? { ...item, quantity } : item
-        )
-      );
+      const data = await apiUpdateCartItem(productId, quantity);
+      updateLocalCartState(data);
     } catch (error) {
       console.error("Lỗi khi cập nhật số lượng:", error);
     }
@@ -129,20 +141,25 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({
     return cartItems.reduce((total, item) => total + item.quantity, 0);
   };
 
-  // Dùng useEffect để fetch giỏ hàng khi component mount
+  // Tự động tải lại giỏ hàng khi token thay đổi (Đăng nhập / Đăng xuất)
   useEffect(() => {
     fetchCart();
-  }, []); // Chỉ fetch giỏ hàng khi provider được mount
+  }, [token]);
 
   return (
     <CartContext.Provider
       value={{
         cartItems,
+        itemsPrice,
+        shippingPrice,
+        taxPrice,
+        totalPrice,
         addToCart,
         removeFromCart,
         updateQuantity,
         fetchCart,
         getCartItemCount,
+        clearCartState,
       }}
     >
       {children}

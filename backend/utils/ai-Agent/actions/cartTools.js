@@ -1,13 +1,13 @@
 import Cart from "../../../models/CartModel.js";
+import CartItem from "../../../models/CartItemModel.js";
 import Product from "../../../models/ProductModel.js";
 import redisChat from "../../../services/redisChatService.js";
 
 /**
- * ✅ CẢI THIỆN: Thêm validation và error handling tốt hơn
+ * ✅ CẬP NHẬT LOGIC CHO KIẾN TRÚC 10 MODEL (Cart & CartItem tách rời)
  */
 export async function addToCart({ userId, productId, quantity = 1, token }) {
   try {
-    // Validation
     if (!userId || !token) {
       throw new Error("Bạn cần đăng nhập để thêm vào giỏ hàng");
     }
@@ -16,7 +16,6 @@ export async function addToCart({ userId, productId, quantity = 1, token }) {
       throw new Error("Thiếu thông tin sản phẩm");
     }
 
-    // Kiểm tra sản phẩm
     const product = await Product.findById(productId);
     if (!product) {
       throw new Error("Sản phẩm không tồn tại");
@@ -26,39 +25,49 @@ export async function addToCart({ userId, productId, quantity = 1, token }) {
       throw new Error(`Sản phẩm chỉ còn ${product.countInStock} trong kho`);
     }
 
-    // Xử lý giỏ hàng (model dùng field `cartItems`)
+    // 1. Tìm hoặc tạo Cart của người dùng
     let cart = await Cart.findOne({ user: userId });
-
     if (!cart) {
       cart = new Cart({ user: userId, cartItems: [] });
+      await cart.save();
     }
 
-    const existingItemIndex = cart.cartItems.findIndex(
-      (item) => item.product.toString() === productId
-    );
+    // 2. Tìm xem sản phẩm đã có trong CartItem của Cart này chưa
+    let cartItem = await CartItem.findOne({ cart: cart._id, product: productId });
 
-    if (existingItemIndex > -1) {
-      cart.cartItems[existingItemIndex].quantity += quantity;
+    if (cartItem) {
+      // Nếu đã có -> Cập nhật số lượng
+      cartItem.quantity += Number(quantity);
+      await cartItem.save();
     } else {
-      cart.cartItems.push({
+      // Nếu chưa có -> Tạo CartItem mới
+      cartItem = new CartItem({
+        cart: cart._id,
         product: productId,
-        quantity: quantity,
-        price: product.price,
         name: product.name,
+        price: product.price,
+        quantity: Number(quantity),
         image: product.image,
       });
+      await cartItem.save();
+
+      // Thêm ID của CartItem vào mảng cartItems của Cart
+      cart.cartItems.push(cartItem._id);
+      await cart.save();
     }
 
-    // Tính tổng tạm thời (không lưu vào schema vì không có field total)
-    const total = cart.cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    // 3. Lấy lại toàn bộ giỏ hàng với populate để trả về dữ liệu chuẩn
+    const updatedCart = await Cart.findOne({ user: userId }).populate({
+      path: "cartItems",
+      populate: { path: "product", select: "name image price countInStock" }
+    });
 
-    await cart.save();
-    await cart.populate("cartItems.product", "name image price");
+    const total = updatedCart.cartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const itemCount = updatedCart.cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
-    // Update session meta lastViewedProducts -> remove the added product so followups don't re-add same item
+    // Update session meta (xử lý tham chiếu AI)
     try {
       if (userId) {
-        // read meta and filter
         const meta = await redisChat.getSessionMeta(userId);
         if (meta && Array.isArray(meta.lastViewedProducts)) {
           const filtered = meta.lastViewedProducts.filter(p => p.id !== productId.toString());
@@ -66,29 +75,28 @@ export async function addToCart({ userId, productId, quantity = 1, token }) {
         }
       }
     } catch (e) {
-      console.warn('Could not update lastViewedProducts after addToCart:', e.message);
+      console.warn('Could not update lastViewedProducts:', e.message);
     }
 
-    // ✅ TRẢ VỀ STRUCTURED DATA
     return {
       success: true,
       message: `Đã thêm ${product.name} vào giỏ hàng`,
       cart: {
-        itemCount: cart.cartItems.reduce((sum, item) => sum + item.quantity, 0),
+        itemCount,
         total,
-        items: cart.cartItems.map(item => ({
+        items: updatedCart.cartItems.map(item => ({
           id: item.product?._id || item.product,
-          name: item.product?.name || item.name,
+          name: item.name || item.product?.name,
           price: item.price,
           quantity: item.quantity,
-          image: item.product?.image || item.image
+          image: item.image || item.product?.image
         }))
       }
     };
     
   } catch (error) {
     console.error("❌ Add to cart error:", error.message);
-    throw error; // Để Gemini nhận được error message
+    throw error;
   }
 }
 
@@ -98,8 +106,10 @@ export async function getCart({ userId, token }) {
       throw new Error("Bạn cần đăng nhập để xem giỏ hàng");
     }
 
-    const cart = await Cart.findOne({ user: userId })
-      .populate("cartItems.product", "name image price");
+    const cart = await Cart.findOne({ user: userId }).populate({
+      path: "cartItems",
+      populate: { path: "product", select: "name image price countInStock" }
+    });
 
     if (!cart || !cart.cartItems || cart.cartItems.length === 0) {
       return {
@@ -109,19 +119,20 @@ export async function getCart({ userId, token }) {
       };
     }
 
-    const total = cart.cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    const total = cart.cartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const itemCount = cart.cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
     return {
       success: true,
       cart: {
-        itemCount: cart.cartItems.reduce((sum, item) => sum + item.quantity, 0),
+        itemCount,
         total,
         items: cart.cartItems.map(item => ({
           id: item.product?._id || item.product,
-          name: item.product?.name || item.name,
+          name: item.name || item.product?.name,
           price: item.price,
           quantity: item.quantity,
-          image: item.product?.image || item.image
+          image: item.image || item.product?.image
         }))
       }
     };
@@ -132,85 +143,23 @@ export async function getCart({ userId, token }) {
   }
 }
 
-// ========================================
-// EXAMPLE: Controller sử dụng Agent
-// ========================================
-
-export async function chatController(req, res) {
-  try {
-    const { message, context = [] } = req.body;
-    const userId = req.user?._id;
-    const token = req.headers.authorization?.replace('Bearer ', '');
-
-    if (!userId || !token) {
-      return res.status(401).json({
-        success: false,
-        message: "Vui lòng đăng nhập"
-      });
-    }
-
-    const result = await runAgent(message, context, userId, token);
-
-    res.json({
-      success: true,
-      ...result
-    });
-
-  } catch (error) {
-    console.error("Controller error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Lỗi xử lý yêu cầu",
-      error: error.message
-    });
-  }
-}
-
-/**
- * Remove product from user's cart
- */
 export async function removeFromCart({ userId, productId, token }) {
   try {
-    if (!userId || !token) {
-      throw new Error("Bạn cần đăng nhập để xóa sản phẩm khỏi giỏ hàng");
-    }
-
-    if (!productId) {
-      throw new Error("Thiếu productId để xóa");
-    }
+    if (!userId || !token) throw new Error("Vui lòng đăng nhập");
 
     const cart = await Cart.findOne({ user: userId });
-    if (!cart || !cart.cartItems || cart.cartItems.length === 0) {
-      return { success: true, message: "Giỏ hàng trống", cart: { items: [], total: 0, itemCount: 0 } };
+    if (!cart) return { success: true, message: "Giỏ hàng trống" };
+
+    // Tìm và xóa CartItem
+    const cartItem = await CartItem.findOneAndDelete({ cart: cart._id, product: productId });
+    
+    if (cartItem) {
+      // Xóa ref trong Cart
+      cart.cartItems = cart.cartItems.filter(id => id.toString() !== cartItem._id.toString());
+      await cart.save();
     }
 
-    const beforeCount = cart.cartItems.length;
-    cart.cartItems = cart.cartItems.filter(item => item.product.toString() !== productId);
-
-    if (cart.cartItems.length === beforeCount) {
-      return { success: false, message: "Sản phẩm không có trong giỏ hàng" };
-    }
-
-    const total = cart.cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
-    await cart.save();
-    await cart.populate("cartItems.product", "name image price");
-
-    return {
-      success: true,
-      message: "Đã xóa sản phẩm khỏi giỏ hàng",
-      cart: {
-        itemCount: cart.cartItems.reduce((sum, item) => sum + item.quantity, 0),
-        total,
-        items: cart.cartItems.map(item => ({
-          id: item.product?._id || item.product,
-          name: item.product?.name || item.name,
-          price: item.price,
-          quantity: item.quantity,
-          image: item.product?.image || item.image
-        }))
-      }
-    };
-
+    return getCart({ userId, token });
   } catch (error) {
     console.error("❌ Remove from cart error:", error.message);
     throw error;
@@ -219,54 +168,24 @@ export async function removeFromCart({ userId, productId, token }) {
 
 export async function updateCart({ userId, productId, quantity, token }) {
   try {
-    if (!userId || !token) {
-      throw new Error("Bạn cần đăng nhập để cập nhật giỏ hàng");
-    }
-
-    if (!productId) {
-      throw new Error("Thiếu productId");
-    }
+    if (!userId || !token) throw new Error("Vui lòng đăng nhập");
 
     const cart = await Cart.findOne({ user: userId });
-    if (!cart) {
-      throw new Error("Giỏ hàng trống");
-    }
-
-    const itemIndex = cart.cartItems.findIndex(
-      (it) => it.product.toString() === productId
-    );
-
-    if (itemIndex === -1) {
-      throw new Error("Sản phẩm không có trong giỏ hàng");
-    }
+    if (!cart) throw new Error("Giỏ hàng trống");
 
     if (quantity <= 0) {
-      cart.cartItems.splice(itemIndex, 1);
-    } else {
-      cart.cartItems[itemIndex].quantity = quantity;
+      return removeFromCart({ userId, productId, token });
     }
 
-    await cart.save();
-    await cart.populate("cartItems.product", "name image price");
+    const cartItem = await CartItem.findOneAndUpdate(
+      { cart: cart._id, product: productId },
+      { quantity: Number(quantity) },
+      { new: true }
+    );
 
-    const total = cart.cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    if (!cartItem) throw new Error("Sản phẩm không có trong giỏ hàng");
 
-    return {
-      success: true,
-      message: "Đã cập nhật giỏ hàng",
-      cart: {
-        itemCount: cart.cartItems.reduce((sum, item) => sum + item.quantity, 0),
-        total,
-        items: cart.cartItems.map(item => ({
-          id: item.product?._id || item.product,
-          name: item.product?.name || item.name,
-          price: item.price,
-          quantity: item.quantity,
-          image: item.product?.image || item.image
-        }))
-      }
-    };
-
+    return getCart({ userId, token });
   } catch (error) {
     console.error("❌ Update cart error:", error.message);
     throw error;
@@ -275,50 +194,32 @@ export async function updateCart({ userId, productId, quantity, token }) {
 
 export async function getCartCount({ userId, token }) {
   try {
-    if (!userId || !token) {
-      throw new Error("Bạn cần đăng nhập để xem số lượng giỏ hàng");
-    }
-
+    if (!userId || !token) return { success: true, count: 0 };
     const cart = await Cart.findOne({ user: userId });
     if (!cart || !cart.cartItems) return { success: true, count: 0 };
 
-    const count = cart.cartItems.reduce((sum, item) => sum + item.quantity, 0);
+    const cartItems = await CartItem.find({ cart: cart._id });
+    const count = cartItems.reduce((sum, item) => sum + item.quantity, 0);
     return { success: true, count };
   } catch (error) {
-    console.error("❌ Get cart count error:", error.message);
-    throw error;
+    return { success: false, count: 0 };
   }
 }
 
-/**
- * Add item from lastViewedProducts list saved in session meta by productTools
- * index: 1-based index into the lastViewedProducts list
- */
 export async function addFromLastViewed({ userId, index = 1, quantity = 1, token }) {
   try {
-    if (!userId || !token) throw new Error('Bạn cần đăng nhập để thêm vào giỏ');
-
+    if (!userId || !token) throw new Error('Vui lòng đăng nhập');
     const meta = await redisChat.getSessionMeta(userId);
     const list = Array.isArray(meta.lastViewedProducts) ? meta.lastViewedProducts : [];
     const idx = Number(index);
-    if (!Number.isFinite(idx) || idx <= 0) {
-      throw new Error('Index không hợp lệ');
+    const item = list[idx - 1];
+    
+    if (!item || !item.id) {
+      return { success: false, message: `Không tìm thấy sản phẩm thứ ${index}` };
     }
 
-    const item = list[idx - 1] || null;
-    if (!item) {
-      return { success: false, message: `Không tìm thấy mục thứ ${index} trong danh sách tham khảo` };
-    }
-
-    // item.id should be productId
-    const productId = item.id;
-    if (!productId) return { success: false, message: 'Mục tham khảo không chứa productId' };
-
-    // Delegate to addToCart (this module's function)
-    const res = await addToCart({ userId, productId, quantity, token });
-    return { success: true, message: res.message, cart: res.cart };
+    return addToCart({ userId, productId: item.id, quantity, token });
   } catch (error) {
-    console.error('❌ addFromLastViewed error:', error.message);
     throw error;
   }
 }

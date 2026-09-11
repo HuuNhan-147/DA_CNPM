@@ -2,7 +2,6 @@ import React, {
   createContext,
   useContext,
   useState,
-  useEffect,
   ReactNode,
 } from "react";
 import { User } from "../types/User"; // Import interface User
@@ -20,18 +19,19 @@ export const AuthContext = createContext<AuthContextType | null>(null);
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({
   children,
 }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
-
-  useEffect(() => {
+  // ✅ Lazy state initialization: đọc trực tiếp từ LocalStorage khi khởi tạo để tránh bị null ở lần render đầu tiên
+  const [user, setUser] = useState<User | null>(() => {
     const storedUser = localStorage.getItem("user");
-    const storedToken = localStorage.getItem("token");
-
-    if (storedUser && storedToken) {
-      setUser(JSON.parse(storedUser));
-      setToken(storedToken);
+    if (!storedUser) return null;
+    try {
+      return JSON.parse(storedUser);
+    } catch (e) {
+      localStorage.removeItem("user");
+      return null;
     }
-  }, []);
+  });
+
+  const [token, setToken] = useState<string | null>(() => localStorage.getItem("token"));
 
   const login = (userData: User, token: string) => {
     setUser(userData);

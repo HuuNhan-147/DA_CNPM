@@ -145,12 +145,25 @@ export function getToolDeclarations() {
     },
     {
       name: "create_order",
-      description: "Tạo đơn hàng từ giỏ hàng hiện tại (shippingAddress, paymentMethod)",
+      description: "Tạo đơn hàng từ giỏ hàng hiện tại. Yêu cầu nhập đầy đủ thông tin giao hàng.",
       parameters: {
         type: "object",
         properties: {
-          shippingAddress: { type: "object", description: "Địa chỉ giao hàng" },
-          paymentMethod: { type: "string", description: "Phương thức thanh toán" }
+          shippingAddress: {
+            type: "object",
+            description: "Thông tin địa chỉ giao hàng",
+            properties: {
+              fullname: { type: "string", description: "Họ và tên người nhận" },
+              phone: { type: "string", description: "Số điện thoại liên lạc" },
+              address: { type: "string", description: "Địa chỉ cụ thể (số nhà, tên đường...)" },
+              city: { type: "string", description: "Thành phố/Tỉnh thành" }
+            },
+            required: ["fullname", "phone", "address", "city"]
+          },
+          paymentMethod: { 
+            type: "string", 
+            description: "Phương thức thanh toán (COD hoặc VNPAY)" 
+          }
         },
         required: ["shippingAddress", "paymentMethod"]
       }

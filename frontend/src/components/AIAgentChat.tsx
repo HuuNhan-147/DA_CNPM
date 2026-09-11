@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { fetchAIAgentResponse } from "../api/aiAgent";
 import { useAuth } from "../context/AuthContext";
 import { IProduct } from "../types/product";
+import { io, Socket } from "socket.io-client"; // ✅ Tích hợp socket.io-client
+import { webMcpManager } from "../webmcp"; // ✅ WebMCP runtime manager
 import {
   FaPaperPlane,
   FaRobot,
@@ -14,7 +15,6 @@ import {
   FaStar,
   FaBox,
   FaArrowRight,
-  FaShoppingBag,
   FaMinus,
 } from "react-icons/fa";
 
@@ -43,6 +43,7 @@ const AIAgentChat: React.FC = () => {
   const [isMinimized, setIsMinimized] = useState(true);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const socketRef = useRef<Socket | null>(null); // ✅ Lưu trữ tham chiếu Socket
 
   // Initialize welcome message
   useEffect(() => {
@@ -56,6 +57,90 @@ const AIAgentChat: React.FC = () => {
       ]);
     }
   }, [isMinimized]);
+
+  // ✅ KẾT NỐI SOCKET.IO VÀ ĐĂNG KÝ LẮNG NGHE CHUNK CHỮ STREAM
+  useEffect(() => {
+    const socket = io("http://localhost:5000", {
+      withCredentials: true,
+    });
+    socketRef.current = socket;
+
+    socket.on("connect", () => {
+      console.log("🟢 Connected to Socket.IO from E-ComMate Chat!");
+    });
+
+    // Lắng nghe chunk chữ truyền về từ server thời gian thực
+    socket.on("agent_response_chunk", (data: { text: string; sessionId: string }) => {
+      if (data.sessionId) setSessionId(data.sessionId);
+
+      setMessages((prev) => {
+        const lastMsg = prev[prev.length - 1];
+        if (lastMsg && lastMsg.sender === "agent") {
+          // Nối thêm text chunk mới nhận được vào tin nhắn của agent
+          const updatedLastMsg = {
+            ...lastMsg,
+            text: lastMsg.text + data.text,
+          };
+          return [...prev.slice(0, -1), updatedLastMsg];
+        }
+        return prev;
+      });
+    });
+
+    // Lắng nghe khi cuộc hội thoại hoàn thành (kèm metadata sản phẩm và nút bấm)
+    socket.on("agent_response_end", (data: any) => {
+      console.log("📡 agent_response_end received:", data);
+      if (data.sessionId) setSessionId(data.sessionId);
+
+      setMessages((prev) => {
+        const lastMsg = prev[prev.length - 1];
+        if (lastMsg && lastMsg.sender === "agent") {
+          const replyText = data.reply || lastMsg.text || "Tôi chưa hiểu rõ yêu cầu của bạn.";
+          const { cleanText, actions } = parseActionsFromText(replyText);
+          const transformedProducts = transformAgentProducts(data.payload?.products);
+
+          const updatedLastMsg = {
+            ...lastMsg,
+            text: cleanText, // Làm sạch mã JSON của ACTIONS trong text hiển thị
+            products: transformedProducts,
+            actions: actions || undefined,
+          };
+          return [...prev.slice(0, -1), updatedLastMsg];
+        }
+        return prev;
+      });
+
+      setLoading(false);
+    });
+
+    // ✅ WEBMCP DUAL-PATH: Lắng nghe yêu cầu ủy quyền thực thi WebMCP tool từ Agent Server
+    socket.on(
+      "execute_webmcp_tool",
+      async (data: { executionId: string; toolName: string; args: any }) => {
+        const { executionId, toolName, args } = data;
+        console.log(
+          `🌐 [WebMCP] Server ủy quyền thực thi tool [${toolName}] (ID: ${executionId}):`,
+          args
+        );
+        try {
+          const result = await webMcpManager.executeTool(toolName, args);
+          socket.emit(`webmcp_tool_result_${executionId}`, result);
+          console.log(`✅ [WebMCP] Hoàn tất và gửi kết quả [${toolName}] về Server:`, result);
+        } catch (err: any) {
+          console.error(`❌ [WebMCP] Lỗi thực thi [${toolName}]:`, err);
+          socket.emit(`webmcp_tool_result_${executionId}`, {
+            success: false,
+            error: err?.message || "Lỗi thực thi WebMCP tool trên trình duyệt",
+          });
+        }
+      }
+    );
+
+    return () => {
+      socket.disconnect();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!isMinimized) {
@@ -78,7 +163,7 @@ const AIAgentChat: React.FC = () => {
     const transformed = filteredProducts.map((product) => {
       const productId = product.id || product._id;
 
-      const transformedProduct = {
+      return {
         _id: productId,
         name: product.name || "",
         price: Number(product.price) || 0,
@@ -93,8 +178,6 @@ const AIAgentChat: React.FC = () => {
         updatedAt: product.updatedAt || new Date().toISOString(),
         quantity: product.quantity || 0,
       };
-
-      return transformedProduct;
     });
 
     return transformed;
@@ -204,11 +287,6 @@ const AIAgentChat: React.FC = () => {
         })}
       </div>
     );
-  };
-
-  const handleAddToCart = (product: IProduct) => {
-    console.log("Thêm vào giỏ hàng:", product);
-    alert(`✅ Đã thêm "${product.name}" vào giỏ hàng!`);
   };
 
   const handleViewDetail = (product: IProduct) => {
@@ -337,9 +415,8 @@ const AIAgentChat: React.FC = () => {
   // ✅ COMPONENT PRODUCT CARD
   const ProductCard: React.FC<{
     product: IProduct;
-    onAddToCart: (product: IProduct) => void;
     onViewDetail: (product: IProduct) => void;
-  }> = ({ product, onAddToCart, onViewDetail }) => {
+  }> = ({ product, onViewDetail }) => {
     const isValidProduct = product && product._id && product.name;
 
     if (!isValidProduct) {
@@ -417,10 +494,34 @@ const AIAgentChat: React.FC = () => {
     );
   };
 
-  // ✅ COMPONENT HIỂN THỊ MESSAGE - ĐÃ SỬA
+  // ✅ COMPONENT HIỂN THỊ MESSAGE
   const AgentMessageWithProducts: React.FC<{ message: Message }> = ({
     message,
   }) => {
+    // Nếu tin nhắn đang rỗng (chờ stream chữ), hiển thị animation Đang soạn tin ngay tại đây
+    if (!message.text && (!message.products || message.products.length === 0)) {
+      return (
+        <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-none px-4 py-3 shadow-sm max-w-[320px]">
+          <div className="flex items-center gap-2">
+            <div className="flex space-x-1">
+              <div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce"></div>
+              <div
+                className="w-2 h-2 bg-purple-500 rounded-full animate-bounce"
+                style={{ animationDelay: "0.15s" }}
+              ></div>
+              <div
+                className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"
+                style={{ animationDelay: "0.3s" }}
+              ></div>
+            </div>
+            <span className="text-gray-500 text-xs italic">
+              E-ComMate đang soạn tin...
+            </span>
+          </div>
+        </div>
+      );
+    }
+
     const hasValidProducts =
       message.products &&
       message.products.length > 0 &&
@@ -435,29 +536,24 @@ const AIAgentChat: React.FC = () => {
 
     return (
       <div className="space-y-3">
-        {/* ✅ HỢP NHẤT MESSAGE VÀ PRODUCTS TRONG CÙNG MỘT KHUNG */}
         <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-none shadow-sm overflow-hidden w-full max-w-[340px]">
           <div className="px-4 py-3">
-            {/* ✅ HIỂN THỊ TEXT MESSAGE */}
             <div className="text-gray-800 leading-relaxed text-sm space-y-2">
               {formatAgentText(message.text)}
             </div>
 
-            {/* ✅ HIỂN THỊ PRODUCTS NGAY SAU TEXT (KHÔNG CÓ TIÊU ĐỀ) */}
             {hasValidProducts && validProducts.length > 0 && (
               <div className="mt-3 space-y-2">
                 {validProducts.map((product) => (
                   <ProductCard
                     key={product._id}
                     product={product}
-                    onAddToCart={handleAddToCart}
                     onViewDetail={handleViewDetail}
                   />
                 ))}
               </div>
             )}
 
-            {/* ✅ HIỂN THỊ ACTION BUTTONS */}
             {message.actions && <ActionButtons actions={message.actions} />}
           </div>
 
@@ -476,16 +572,24 @@ const AIAgentChat: React.FC = () => {
     );
   };
 
-  // ✅ HANDLE SEND MESSAGE
+  // ✅ HANDLE SEND MESSAGE VIA SOCKET.IO STREAM
   const handleSend = async () => {
-    if (!input.trim() || loading) return;
+    if (!input.trim() || loading || !socketRef.current) return;
 
     const userMsg: Message = {
       sender: "user",
       text: input,
       timestamp: new Date(),
     };
-    setMessages((prev) => [...prev, userMsg]);
+
+    // Đẩy tin nhắn của user vào danh sách, đồng thời tạo trước khung tin nhắn của agent để nhận stream chữ
+    const agentMsg: Message = {
+      sender: "agent",
+      text: "",
+      timestamp: new Date(),
+    };
+
+    setMessages((prev) => [...prev, userMsg, agentMsg]);
 
     const text = input;
     setInput("");
@@ -493,41 +597,30 @@ const AIAgentChat: React.FC = () => {
 
     try {
       const token = getToken ? getToken() : null;
-      const response = await fetchAIAgentResponse(
-        user?.id || null,
-        text,
+
+      // Gửi sự kiện đi qua Socket.io kèm cờ hỗ trợ WebMCP
+      socketRef.current.emit("client_send_message", {
+        message: text,
+        sessionId,
+        userId: user?.id || null,
         token,
-        sessionId
-      );
+        hasWebMCP: true,
+      });
 
-      if (response?.sessionId) {
-        setSessionId(response.sessionId);
-      }
-
-      const replyText = response?.reply || "Tôi chưa hiểu rõ yêu cầu của bạn.";
-      const { cleanText, actions } = parseActionsFromText(replyText);
-      const transformedProducts = transformAgentProducts(
-        response.payload?.products
-      );
-      const agentMsg: Message = {
-        sender: "agent",
-        text: cleanText,
-        products: transformedProducts,
-        actions: actions || undefined,
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, agentMsg]);
+      console.log("📤 client_send_message emitted via Socket.io");
     } catch (err) {
-      console.error("❌ Chat error:", err);
-      setMessages((prev) => [
-        ...prev,
-        {
-          sender: "agent",
-          text: "⚠️ Xin lỗi, tôi đang gặp sự cố. Vui lòng thử lại sau.",
-          timestamp: new Date(),
-        },
-      ]);
-    } finally {
+      console.error("❌ Chat Socket emit error:", err);
+      setMessages((prev) => {
+        // Thay thế khung trống bằng thông báo lỗi
+        return [
+          ...prev.slice(0, -1),
+          {
+            sender: "agent",
+            text: "⚠️ Xin lỗi, tôi đang gặp sự cố kết nối. Vui lòng thử lại sau.",
+            timestamp: new Date(),
+          },
+        ];
+      });
       setLoading(false);
     }
   };
@@ -638,34 +731,6 @@ const AIAgentChat: React.FC = () => {
             </div>
           </div>
         ))}
-
-        {loading && (
-          <div className="flex justify-start">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-gradient-to-r from-purple-500 to-blue-500 rounded-full flex items-center justify-center">
-                <FaRobot className="text-white text-sm" />
-              </div>
-              <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-none px-4 py-3 shadow-sm max-w-[320px]">
-                <div className="flex items-center gap-2">
-                  <div className="flex space-x-1">
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                    <div
-                      className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
-                      style={{ animationDelay: "0.1s" }}
-                    ></div>
-                    <div
-                      className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
-                      style={{ animationDelay: "0.2s" }}
-                    ></div>
-                  </div>
-                  <span className="text-gray-500 text-sm">
-                    Đang soạn tin...
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
 
         <div ref={chatEndRef}></div>
       </div>

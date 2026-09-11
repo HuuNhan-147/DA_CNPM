@@ -19,35 +19,55 @@ class RedisChatService {
     };
   }
 
+  /**
+   * Lấy redis client và kiểm tra trạng thái hoạt động
+   */
+  getRedis() {
+    try {
+      return getRedisClient();
+    } catch (e) {
+      console.warn("⚠️ Cannot get Redis client, fallback to memory:", e.message);
+      return null;
+    }
+  }
+
   // Tạo hoặc lấy session
   async getOrCreateSession(userId, sessionId = null) {
-    const redis = getRedisClient();
-
+    const redis = this.getRedis();
     if (!sessionId) {
       sessionId = `${userId}_${Date.now()}`;
     }
 
-    const sessionKey = `chat:session:${userId}:${sessionId}`;
-    const exists = await redis.exists(sessionKey);
+    if (!redis) {
+      console.warn(`⚠️ Redis offline: Using temporary memory session ${sessionId}`);
+      return sessionId;
+    }
 
-    if (!exists) {
-      const sessionData = {
-        sessionId,
-        userId,
-        createdAt: new Date().toISOString(),
-        lastActivity: new Date().toISOString(),
-        messageCount: 0,
-      };
-      await redis.hSet(sessionKey, sessionData);
-      await redis.expire(sessionKey, this.TTL.SESSION);
+    try {
+      const sessionKey = `chat:session:${userId}:${sessionId}`;
+      const exists = await redis.exists(sessionKey);
 
-      await redis.sAdd(`chat:active:${userId}`, sessionId);
-      await redis.expire(`chat:active:${userId}`, this.TTL.ACTIVE_SESSIONS);
+      if (!exists) {
+        const sessionData = {
+          sessionId,
+          userId,
+          createdAt: new Date().toISOString(),
+          lastActivity: new Date().toISOString(),
+          messageCount: 0,
+        };
+        await redis.hSet(sessionKey, sessionData);
+        await redis.expire(sessionKey, this.TTL.SESSION);
 
-      console.log(`✅ Created new Redis session: ${sessionId}`);
-    } else {
-      await redis.hSet(sessionKey, 'lastActivity', new Date().toISOString());
-      await redis.expire(sessionKey, this.TTL.SESSION);
+        await redis.sAdd(`chat:active:${userId}`, sessionId);
+        await redis.expire(`chat:active:${userId}`, this.TTL.ACTIVE_SESSIONS);
+
+        console.log(`✅ Created new Redis session: ${sessionId}`);
+      } else {
+        await redis.hSet(sessionKey, 'lastActivity', new Date().toISOString());
+        await redis.expire(sessionKey, this.TTL.SESSION);
+      }
+    } catch (err) {
+      console.error("❌ Redis error in getOrCreateSession:", err.message);
     }
 
     return sessionId;
@@ -55,34 +75,51 @@ class RedisChatService {
 
   // Set/merge session meta
   async setSessionMeta(userId, sessionId = null, metaPatch = {}) {
-    const redis = getRedisClient();
+    const redis = this.getRedis();
     if (!sessionId) sessionId = await this.getOrCreateSession(userId);
-    const sessionKey = `chat:session:${userId}:${sessionId}`;
+    
+    if (!redis) {
+      return metaPatch;
+    }
 
-    const existing = await redis.hGet(sessionKey, 'meta');
-    let meta = {};
-    try { meta = existing ? JSON.parse(existing) : {}; } catch (e) { meta = {}; }
+    try {
+      const sessionKey = `chat:session:${userId}:${sessionId}`;
+      const existing = await redis.hGet(sessionKey, 'meta');
+      let meta = {};
+      try { meta = existing ? JSON.parse(existing) : {}; } catch (e) { meta = {}; }
 
-    meta = { ...meta, ...metaPatch };
+      meta = { ...meta, ...metaPatch };
 
-    await redis.hSet(sessionKey, { meta: JSON.stringify(meta), lastActivity: new Date().toISOString() });
-    await redis.expire(sessionKey, this.TTL.SESSION);
-    return meta;
+      await redis.hSet(sessionKey, { meta: JSON.stringify(meta), lastActivity: new Date().toISOString() });
+      await redis.expire(sessionKey, this.TTL.SESSION);
+      return meta;
+    } catch (err) {
+      console.error("❌ Redis error in setSessionMeta:", err.message);
+      return metaPatch;
+    }
   }
 
   // Get session meta
   async getSessionMeta(userId, sessionId = null) {
-    const redis = getRedisClient();
+    const redis = this.getRedis();
     if (!sessionId) sessionId = await this.getOrCreateSession(userId);
-    const sessionKey = `chat:session:${userId}:${sessionId}`;
-    const raw = await redis.hGet(sessionKey, 'meta');
-    try { return raw ? JSON.parse(raw) : {}; } catch (e) { return {}; }
+    
+    if (!redis) {
+      return {};
+    }
+
+    try {
+      const sessionKey = `chat:session:${userId}:${sessionId}`;
+      const raw = await redis.hGet(sessionKey, 'meta');
+      try { return raw ? JSON.parse(raw) : {}; } catch (e) { return {}; }
+    } catch (err) {
+      console.error("❌ Redis error in getSessionMeta:", err.message);
+      return {};
+    }
   }
 
   // Thêm message vào session
   async addMessage(userId, sessionId, role, content, functionCalls = null) {
-    const redis = getRedisClient();
-
     const message = {
       role,
       content,
@@ -90,128 +127,183 @@ class RedisChatService {
       functionCalls: functionCalls ? JSON.stringify(functionCalls) : null,
     };
 
-    const messagesKey = `chat:messages:${userId}:${sessionId}`;
-    const sessionKey = `chat:session:${userId}:${sessionId}`;
+    const redis = this.getRedis();
+    if (!redis) {
+      console.warn(`⚠️ Redis offline: Message not saved in history (${role})`);
+      return message;
+    }
 
-    await redis.rPush(messagesKey, JSON.stringify(message));
-    await redis.expire(messagesKey, this.TTL.MESSAGES);
+    try {
+      const messagesKey = `chat:messages:${userId}:${sessionId}`;
+      const sessionKey = `chat:session:${userId}:${sessionId}`;
 
-    const messageCount = await redis.lLen(messagesKey);
-    await redis.hSet(sessionKey, {
-      lastActivity: new Date().toISOString(),
-      messageCount: messageCount.toString(),
-    });
-    await redis.expire(sessionKey, this.TTL.SESSION);
+      await redis.rPush(messagesKey, JSON.stringify(message));
+      await redis.expire(messagesKey, this.TTL.MESSAGES);
 
-    console.log(`📝 Added message to Redis: ${role} - ${sessionId}`);
+      const messageCount = await redis.lLen(messagesKey);
+      await redis.hSet(sessionKey, {
+        lastActivity: new Date().toISOString(),
+        messageCount: messageCount.toString(),
+      });
+      await redis.expire(sessionKey, this.TTL.SESSION);
+
+      console.log(`📝 Added message to Redis: ${role} - ${sessionId}`);
+    } catch (err) {
+      console.error("❌ Redis error in addMessage:", err.message);
+    }
 
     return message;
   }
 
   // Lấy messages của session
   async getMessages(userId, sessionId, limit = 50, offset = 0) {
-    const redis = getRedisClient();
-    const messagesKey = `chat:messages:${userId}:${sessionId}`;
-
-    const exists = await redis.exists(messagesKey);
-    if (!exists) {
-      return []; // Nếu không có session, trả về rỗng
+    const redis = this.getRedis();
+    if (!redis) {
+      return [];
     }
 
-    const start = -limit - offset;
-    const end = offset === 0 ? -1 : -offset - 1;
+    try {
+      const messagesKey = `chat:messages:${userId}:${sessionId}`;
+      const exists = await redis.exists(messagesKey);
+      if (!exists) {
+        return [];
+      }
 
-    const messages = await redis.lRange(messagesKey, start, end);
-    return messages.map((msg) => JSON.parse(msg));
+      const start = -limit - offset;
+      const end = offset === 0 ? -1 : -offset - 1;
+
+      const messages = await redis.lRange(messagesKey, start, end);
+      return messages.map((msg) => JSON.parse(msg));
+    } catch (err) {
+      console.error("❌ Redis error in getMessages:", err.message);
+      return [];
+    }
   }
 
   // Lấy danh sách active sessions
   async getActiveSessions(userId) {
-    const redis = getRedisClient();
-    const activeKey = `chat:active:${userId}`;
+    const redis = this.getRedis();
+    if (!redis) {
+      return [];
+    }
 
-    const sessionIds = await redis.sMembers(activeKey);
+    try {
+      const activeKey = `chat:active:${userId}`;
+      const sessionIds = await redis.sMembers(activeKey);
 
-    const sessions = await Promise.all(
-      sessionIds.map(async (sessionId) => {
-        const sessionKey = `chat:session:${userId}:${sessionId}`;
-        const data = await redis.hGetAll(sessionKey);
+      const sessions = await Promise.all(
+        sessionIds.map(async (sessionId) => {
+          const sessionKey = `chat:session:${userId}:${sessionId}`;
+          const data = await redis.hGetAll(sessionKey);
 
-        if (Object.keys(data).length === 0) {
-          await redis.sRem(activeKey, sessionId);
-          return null;
-        }
+          if (Object.keys(data).length === 0) {
+            await redis.sRem(activeKey, sessionId);
+            return null;
+          }
 
-        return {
-          sessionId,
-          lastActivity: data.lastActivity,
-          messageCount: parseInt(data.messageCount || 0),
-          createdAt: data.createdAt,
-        };
-      })
-    );
+          return {
+            sessionId,
+            lastActivity: data.lastActivity,
+            messageCount: parseInt(data.messageCount || 0),
+            createdAt: data.createdAt,
+          };
+        })
+      );
 
-    return sessions.filter(Boolean).sort((a, b) => new Date(b.lastActivity) - new Date(a.lastActivity));
+      return sessions.filter(Boolean).sort((a, b) => new Date(b.lastActivity) - new Date(a.lastActivity));
+    } catch (err) {
+      console.error("❌ Redis error in getActiveSessions:", err.message);
+      return [];
+    }
   }
 
   // Xóa session
   async deleteSession(userId, sessionId) {
-    const redis = getRedisClient();
+    const redis = this.getRedis();
+    if (!redis) return;
 
-    const sessionKey = `chat:session:${userId}:${sessionId}`;
-    const messagesKey = `chat:messages:${userId}:${sessionId}`;
-    const activeKey = `chat:active:${userId}`;
+    try {
+      const sessionKey = `chat:session:${userId}:${sessionId}`;
+      const messagesKey = `chat:messages:${userId}:${sessionId}`;
+      const activeKey = `chat:active:${userId}`;
 
-    await redis.del(sessionKey);
-    await redis.del(messagesKey);
-    await redis.sRem(activeKey, sessionId);
+      await redis.del(sessionKey);
+      await redis.del(messagesKey);
+      await redis.sRem(activeKey, sessionId);
 
-    console.log(`🗑️ Deleted Redis session: ${sessionId}`);
+      console.log(`🗑️ Deleted Redis session: ${sessionId}`);
+    } catch (err) {
+      console.error("❌ Redis error in deleteSession:", err.message);
+    }
   }
 
   // Tìm kiếm trong messages
   async searchMessages(userId, keyword, limit = 20) {
-    const redis = getRedisClient();
-    const sessions = await this.getActiveSessions(userId);
-    const results = [];
+    const redis = this.getRedis();
+    if (!redis) return [];
 
-    for (const session of sessions) {
-      const messages = await this.getMessages(userId, session.sessionId, 100, 0);
-      const matches = messages.filter((msg) => msg.content.toLowerCase().includes(keyword.toLowerCase()));
+    try {
+      const sessions = await this.getActiveSessions(userId);
+      const results = [];
 
-      if (matches.length > 0) {
-        results.push({
-          sessionId: session.sessionId,
-          matches,
-          lastActivity: session.lastActivity,
-        });
+      for (const session of sessions) {
+        const messages = await this.getMessages(userId, session.sessionId, 100, 0);
+        const matches = messages.filter((msg) => msg.content.toLowerCase().includes(keyword.toLowerCase()));
+
+        if (matches.length > 0) {
+          results.push({
+            sessionId: session.sessionId,
+            matches,
+            lastActivity: session.lastActivity,
+          });
+        }
+
+        if (results.length >= limit) break;
       }
 
-      if (results.length >= limit) break;
+      return results;
+    } catch (err) {
+      console.error("❌ Redis error in searchMessages:", err.message);
+      return [];
     }
-
-    return results;
   }
 
   // Get statistics
   async getStats(userId) {
-    const sessions = await this.getActiveSessions(userId);
-    const totalMessages = sessions.reduce((sum, s) => sum + s.messageCount, 0);
+    const redis = this.getRedis();
+    if (!redis) {
+      return { totalActiveSessions: 0, totalMessages: 0, lastActivity: null };
+    }
 
-    return {
-      totalActiveSessions: sessions.length,
-      totalMessages,
-      lastActivity: sessions[0]?.lastActivity || null,
-    };
+    try {
+      const sessions = await this.getActiveSessions(userId);
+      const totalMessages = sessions.reduce((sum, s) => sum + s.messageCount, 0);
+
+      return {
+        totalActiveSessions: sessions.length,
+        totalMessages,
+        lastActivity: sessions[0]?.lastActivity || null,
+      };
+    } catch (err) {
+      console.error("❌ Redis error in getStats:", err.message);
+      return { totalActiveSessions: 0, totalMessages: 0, lastActivity: null };
+    }
   }
 
   // Xóa tất cả sessions của user
   async deleteAllSessions(userId) {
-    const sessions = await this.getActiveSessions(userId);
-    for (const session of sessions) {
-      await this.deleteSession(userId, session.sessionId);
+    const redis = this.getRedis();
+    if (!redis) return;
+
+    try {
+      const sessions = await this.getActiveSessions(userId);
+      for (const session of sessions) {
+        await this.deleteSession(userId, session.sessionId);
+      }
+      console.log(`🗑️ Deleted all sessions for user ${userId}`);
+    } catch (err) {
+      console.error("❌ Redis error in deleteAllSessions:", err.message);
     }
-    console.log(`🗑️ Deleted all sessions for user ${userId}`);
   }
 }
 

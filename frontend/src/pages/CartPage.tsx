@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { getCart } from "../api/CartApi";
 import { ShoppingCart, ArrowLeft } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import CartItem from "../components/CartItem";
@@ -8,19 +7,26 @@ import CartSummary from "../components/CartSummary";
 import { useCart } from "../context/CartContext";
 
 const CartPage = () => {
-  const [cartData, setCartData] = useState<any | null>(null);
+  const {
+    cartItems,
+    itemsPrice,
+    shippingPrice,
+    taxPrice,
+    totalPrice,
+    removeFromCart,
+    updateQuantity,
+    fetchCart,
+  } = useCart();
+
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  const { getToken } = useAuth();
+  const { token } = useAuth();
   const navigate = useNavigate();
-  const { removeFromCart, updateQuantity } = useCart();
 
-  const fetchCart = async () => {
-    const token = getToken();
+  const loadCart = async () => {
     if (!token) {
       setError("Vui lòng đăng nhập để xem giỏ hàng!");
-      setCartData(null);
       setLoading(false);
       return;
     }
@@ -28,14 +34,13 @@ const CartPage = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await getCart(token);
-      setCartData(response);
-
-      if (!response.cart.cartItems || response.cart.cartItems.length === 0) {
-        setError("Giỏ hàng trống");
+      await fetchCart();
+      if (cartItems.length === 0) {
+        // Có thể fetchCart vừa chạy xong và cập nhật context rỗng
+        // Nhưng component sẽ re-render khi cartItems cập nhật.
       }
-    } catch (error) {
-      console.error(error);
+    } catch (err: any) {
+      console.error(err);
       setError("Không thể lấy thông tin giỏ hàng.");
     } finally {
       setLoading(false);
@@ -43,53 +48,15 @@ const CartPage = () => {
   };
 
   useEffect(() => {
-    fetchCart();
+    loadCart();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [token]);
 
   const handleRemoveItem = async (productId: string) => {
     try {
-      // Gọi API để xóa sản phẩm khỏi giỏ hàng
       await removeFromCart(productId);
-
-      // Cập nhật giỏ hàng trong state sau khi xóa sản phẩm
-      if (cartData) {
-        // Tạo mảng giỏ hàng mới sau khi xóa sản phẩm
-        const updatedItems = cartData.cart.cartItems.filter(
-          (item: any) => item.product._id !== productId
-        );
-
-        // Tính tổng tiền của các sản phẩm còn lại trong giỏ hàng
-        const updatedItemsPrice = updatedItems.reduce(
-          (acc: number, item: any) => acc + item.product.price * item.quantity,
-          0
-        );
-
-        // Tính tiền ship: miễn phí nếu tổng tiền > 1 triệu
-        const updatedShippingPrice = 30000;
-
-        // Tính thuế 10%
-        const updatedTaxPrice = updatedItemsPrice * 0.1;
-
-        // Tính tổng tiền sau thuế và ship
-        const updatedTotalPrice =
-          updatedItemsPrice + updatedShippingPrice + updatedTaxPrice;
-
-        // Cập nhật lại giỏ hàng trong state và tính lại tổng tiền
-        setCartData({
-          ...cartData,
-          cart: {
-            ...cartData.cart,
-            cartItems: updatedItems,
-          },
-          itemsPrice: updatedItemsPrice,
-          shippingPrice: updatedShippingPrice,
-          taxPrice: updatedTaxPrice,
-          totalPrice: updatedTotalPrice,
-        });
-      }
-    } catch (error) {
-      console.error("Lỗi khi xóa sản phẩm:", error);
+    } catch (err) {
+      console.error("Lỗi khi xóa sản phẩm:", err);
       setError("Không thể xóa sản phẩm.");
     }
   };
@@ -101,66 +68,23 @@ const CartPage = () => {
     if (newQuantity < 1) return;
     try {
       await updateQuantity(productId, newQuantity);
-
-      if (cartData) {
-        // Cập nhật số lượng mới trong giỏ hàng
-        const updatedItems = cartData.cart.cartItems.map((item: any) => {
-          if (item.product._id === productId) {
-            return {
-              ...item,
-              quantity: newQuantity,
-            };
-          }
-          return item;
-        });
-
-        // Tính tổng tiền của các sản phẩm
-        const updatedItemsPrice = updatedItems.reduce(
-          (acc: number, item: any) => acc + item.product.price * item.quantity,
-          0
-        );
-
-        // Tính tiền ship: miễn phí nếu tổng tiền > 1 triệu
-        const updatedShippingPrice = 30000;
-
-        // Tính thuế 10%
-        const updatedTaxPrice = updatedItemsPrice * 0.1;
-
-        // Tính tổng tiền sau thuế và ship
-        const updatedTotalPrice =
-          updatedItemsPrice + updatedShippingPrice + updatedTaxPrice;
-
-        // Cập nhật lại dữ liệu trong state
-        setCartData({
-          ...cartData,
-          cart: {
-            ...cartData.cart,
-            cartItems: updatedItems,
-          },
-          itemsPrice: updatedItemsPrice,
-          shippingPrice: updatedShippingPrice,
-          taxPrice: updatedTaxPrice,
-          totalPrice: updatedTotalPrice,
-        });
-      }
-    } catch (error) {
-      console.error("Lỗi khi cập nhật số lượng:", error);
+    } catch (err) {
+      console.error("Lỗi khi cập nhật số lượng:", err);
       setError("Không thể cập nhật số lượng sản phẩm.");
     }
   };
 
   const handleBuyNow = () => {
-    const token = getToken();
     if (!token) {
       navigate("/login");
       return;
     }
 
-    if (!cartData?.cart.cartItems || cartData.cart.cartItems.length === 0) {
+    if (cartItems.length === 0) {
       return;
     }
 
-    const products = cartData.cart.cartItems.map((item: any) => ({
+    const products = cartItems.map((item) => ({
       _id: item.product._id,
       name: item.product.name,
       price: item.product.price,
@@ -173,10 +97,10 @@ const CartPage = () => {
       state: {
         products,
         summary: {
-          itemsPrice: cartData?.itemsPrice,
-          shippingPrice: cartData?.shippingPrice,
-          taxPrice: cartData?.taxPrice,
-          totalPrice: cartData?.totalPrice,
+          itemsPrice,
+          shippingPrice,
+          taxPrice,
+          totalPrice,
         },
       },
     });
@@ -190,7 +114,9 @@ const CartPage = () => {
     );
   }
 
-  if (error || !cartData || cartData.cart.cartItems.length === 0) {
+  const isCartEmpty = !cartItems || cartItems.length === 0;
+
+  if (error || isCartEmpty) {
     return (
       <div className="text-center py-12">
         <ShoppingCart className="mx-auto h-16 w-16 text-gray-400 mb-4" />
@@ -236,7 +162,7 @@ const CartPage = () => {
               <div className="col-span-2 text-center">Thành tiền</div>
             </div>
 
-            {cartData.cart.cartItems.map((item: any) => (
+            {cartItems.map((item) => (
               <CartItem
                 key={item.product._id}
                 item={item}
@@ -249,10 +175,10 @@ const CartPage = () => {
 
         <div className="lg:w-1/3 mt-8 lg:mt-0">
           <CartSummary
-            itemsPrice={cartData.itemsPrice}
-            shippingPrice={cartData.shippingPrice}
-            taxPrice={cartData.taxPrice}
-            totalPrice={cartData.totalPrice}
+            itemsPrice={itemsPrice}
+            shippingPrice={shippingPrice}
+            taxPrice={taxPrice}
+            totalPrice={totalPrice}
             onBuyNow={handleBuyNow}
           />
         </div>

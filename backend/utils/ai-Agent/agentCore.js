@@ -1,28 +1,31 @@
 // utils/aiAgent/agentCore.js
 import axios from "axios";
 import https from "https";
+import { StringDecoder } from "string_decoder"; // ✅ Import StringDecoder để giải mã UTF-8 stream an toàn
 import { tools, getToolDeclarations } from "./toolRegistry.js";
 import redisChatService from "../../services/redisChatService.js";
 import { processInput, getSessionSummary } from "./contextManager.js";
 import { normalizeSlang } from "./processors/slangNormalizer.js";
-import SYSTEM_INSTRUCTION from "./promptTemplates.js"; // ✅ IMPORT PROMPT TỪ FILE CHUNG
+import { buildSystemInstruction } from "./promptTemplates.js"; // ✅ MODULAR PROMPT
+import { detectIntent, filterToolDeclarations } from "./intentRouter.js"; // ✅ INTENT ROUTER
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-1.5-flash"; // Fallback an toàn
 
 // Tối ưu network: Tái sử dụng TCP connection để giảm độ trễ SSL handshake
 const httpsAgent = new https.Agent({ keepAlive: true });
+console.log(`🤖 AI Agent initialized | Model: ${GEMINI_MODEL}`);
 
 /**
- * ✅ MAIN AGENT với Context Loading từ Redis + ENHANCED LOGGING
+ * ✅ MAIN AGENT với Context Loading từ Redis + ENHANCED LOGGING + STREAMING SUPPORT
  */
 export async function runAgent(
   message,
   context = [],
   userId = null,
   token = null,
-  sessionId = null
+  sessionId = null,
+  onChunk = null // Callback hỗ trợ stream chữ về client thời gian thực: (text, sessionId) => void
 ) {
   try {
     console.log("\n" + "=".repeat(60));
@@ -35,11 +38,12 @@ export async function runAgent(
     const normalizedMessage = normalizeSlang(message);
     console.log(`🔤 Slang normalized: "${message}" → "${normalizedMessage}"`);
 
-    // Validate authentication
-    const requiresAuth =
-      normalizedMessage.toLowerCase().includes("giỏ") ||
-      normalizedMessage.toLowerCase().includes("đơn hàng") ||
-      normalizedMessage.toLowerCase().includes("thêm vào giỏ");
+    // ✅ BUG-006: Mở rộng danh sách từ khóa nhạy cảm cần bảo mật xác thực
+    const AUTH_KEYWORDS = [
+      "giỏ", "đơn hàng", "thêm vào giỏ", "giỏ hàng",
+      "mua", "thanh toán", "đặt hàng", "checkout", "hủy đơn", "đơn của tôi"
+    ];
+    const requiresAuth = AUTH_KEYWORDS.some(kw => normalizedMessage.toLowerCase().includes(kw));
 
     if (requiresAuth && (!userId || !token)) {
       return {
@@ -90,8 +94,10 @@ export async function runAgent(
           if (resolvedReference && resolvedReference.success && resolvedReference.product) {
             const product = resolvedReference.product;
             const refText = `[PRODUCT_CONTEXT: User đang đề cập đến sản phẩm: name="${product.name}", productId="${product.id}", price=${product.price}]`;
-            conversationHistory.push({ role: "system", content: refText });
-            console.log(`📎 Added context reference: ${refText}`);
+            
+            // ✅ BUG-019: Nối context trực tiếp vào message hiện tại thay vì đẩy thành 1 turn chat giả có role: system/user
+            messageToUse = `${refText}\n${messageToUse}`;
+            console.log(`📎 Added context reference directly to message: ${refText}`);
           }
         }
       }
@@ -99,8 +105,7 @@ export async function runAgent(
       // 3. Gán kết quả sessionSummary
       if (sessionSummaryResult.status === 'fulfilled' && sessionSummaryResult.value) {
         sessionSummaryText = sessionSummaryResult.value;
-        conversationHistory.unshift({ role: "system", content: sessionSummaryText });
-        console.log("📋 Added session summary to context");
+        console.log("📋 Session summary loaded, will append to system instructions");
       }
     } else {
       console.log(`👻 Anonymous session: ${currentSessionId}`);
@@ -113,7 +118,7 @@ export async function runAgent(
       }
     }
 
-    // Lưu message đã xử lý
+    // Lưu message đã xử lý vào Redis
     if (userId && currentSessionId) {
       await redisChatService.addMessage(
         userId,
@@ -125,13 +130,25 @@ export async function runAgent(
       console.log(`✅ Saved processed user message to Redis`);
     }
 
+    // ✅ MODULAR ROUTER: Xác định domain + chọn đúng prompt & tools
+    const intentResult = detectIntent(messageToUse, conversationHistory);
+    
+    // ✅ BUG-019: Nối tóm tắt phiên chat trực tiếp vào System Instructions của Gemini thay vì push role: user giả
+    const baseSystemInstruction = buildSystemInstruction(intentResult.domains || intentResult.domain);
+    const SYSTEM_INSTRUCTION = sessionSummaryText
+      ? `${baseSystemInstruction}\n\n[TÓM TẮT PHIÊN CHAT TRƯỚC ĐÓ]:\n${sessionSummaryText}`
+      : baseSystemInstruction;
+
+    const allDeclarations = getToolDeclarations();
+    const functionDeclarations = filterToolDeclarations(intentResult.toolSet, allDeclarations);
+
     // Tạo conversation contents với lịch sử
     const contents = buildContents(messageToUse, conversationHistory);
-    const functionDeclarations = getToolDeclarations();
 
     // 🔍 LOG BEFORE CALLING GEMINI
     console.log("\n" + "=".repeat(60));
     console.log("📤 SENDING TO GEMINI:");
+    console.log("🎯 Domains:", intentResult.domains ? intentResult.domains.join(", ") : intentResult.domain, "| Confidence:", intentResult.confidence);
     console.log(
       "📊 System Instruction Length:",
       SYSTEM_INSTRUCTION.length,
@@ -141,17 +158,19 @@ export async function runAgent(
     console.log(
       "📊 Function Declarations:",
       functionDeclarations.length,
-      "tools"
+      `tools (filtered from ${allDeclarations.length})`
     );
     console.log("📝 User Message:", messageToUse);
     console.log(
-      "🔧 Available Tools:",
+      "🔧 Active Tools:",
       functionDeclarations.map((f) => f.name).join(", ")
     );
     console.log("=".repeat(60));
 
-    // Thực thi agent loop
-    let response = await callGemini(contents, functionDeclarations);
+    // Thực thi agent loop sử dụng Streaming để tăng hiệu năng phản hồi
+    let response = await callGeminiStream(contents, functionDeclarations, SYSTEM_INSTRUCTION, (chunkText) => {
+      if (onChunk) onChunk(chunkText, currentSessionId); // Truyền kèm currentSessionId thời gian thực
+    });
 
     // 🔍 LOG GEMINI FIRST RESPONSE
     console.log("\n" + "=".repeat(60));
@@ -216,10 +235,12 @@ export async function runAgent(
         })),
       });
 
-      // Thêm delay 1 giây giữa các bước function calling để tránh lỗi 429 Too Many Requests
-      await new Promise((r) => setTimeout(r, 1000));
+      // ✅ TỐI ƯU: Giảm delay từ 1000ms -> 100ms để tăng tốc độ phản hồi đáng kể
+      await new Promise((r) => setTimeout(r, 100));
 
-      response = await callGemini(contents, functionDeclarations);
+      response = await callGeminiStream(contents, functionDeclarations, SYSTEM_INSTRUCTION, (chunkText) => {
+        if (onChunk) onChunk(chunkText, currentSessionId);
+      });
 
       // 🔍 LOG SUBSEQUENT RESPONSES
       console.log(`📥 ITERATION ${iterationCount} RESPONSE:`);
@@ -298,6 +319,7 @@ export async function runAgent(
       payload: assistantPayload,
       hasPayload: !!assistantPayload,
       productCount: assistantPayload?.products?.length || 0,
+      _debug: { domain: intentResult.domain, domains: intentResult.domains, confidence: intentResult.confidence },
     };
   } catch (error) {
     console.error("\n" + "=".repeat(60));
@@ -324,13 +346,9 @@ export async function runAgent(
 function buildContents(message, conversationHistory) {
   const contents = [];
 
-  // TỐI ƯU HÓA: Không truyền SYSTEM_INSTRUCTION dưới dạng "user message" nữa
-  // Điều này giúp tiết kiệm Token và tránh việc Context bị tính lại trong mỗi vòng lặp.
-
+  // TỐI ƯU HÓA & SỬA BUG-019: Loại bỏ hoàn toàn role system bị gán thành user
   conversationHistory.forEach((msg) => {
-    if (msg.role === "system") {
-      contents.push({ role: "user", parts: [{ text: msg.content }] });
-    } else {
+    if (msg.role === "user" || msg.role === "assistant" || msg.role === "model") {
       contents.push({
         role: msg.role === "assistant" ? "model" : "user",
         parts: [{ text: msg.content }],
@@ -429,18 +447,21 @@ async function executeFunctions(
   );
 }
 
-async function callGemini(contents, functionDeclarations) {
-  const maxRetries = 4; // Tăng lên 4 để xử lý 429 tốt hơn
+/**
+ * ✅ TỐI ƯU HÓA: API gọi Gemini dưới dạng HTTP Stream (chunked transfer encoding)
+ * và phát từng phần text (chunk) về client thông qua callback onChunk.
+ * Sử dụng giải pháp phân tích dòng mới (line-based parsing) để giải quyết triệt để lỗi ngoặc nhọn lồng nhau.
+ */
+async function callGeminiStream(contents, functionDeclarations, systemInstruction, onChunk) {
+  const maxRetries = 4;
   const baseDelay = 1000;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      console.log(
-        `🔌 Calling Gemini API (attempt ${attempt}/${maxRetries})...`
-      );
+      console.log(`🔌 Calling Gemini Stream API (attempt ${attempt}/${maxRetries})...`);
 
       const payload = {
-        system_instruction: { parts: [{ text: SYSTEM_INSTRUCTION }] }, // TỐI ƯU CỰC MẠNH: Đặt System Prompt ở ngoài để dùng chung bộ Cache của AI Model
+        system_instruction: { parts: [{ text: systemInstruction }] },
         contents,
         tools: [{ functionDeclarations }],
         generationConfig: {
@@ -450,93 +471,137 @@ async function callGemini(contents, functionDeclarations) {
       };
 
       const response = await axios.post(
-        `${GEMINI_URL}?key=${GEMINI_API_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:streamGenerateContent?key=${GEMINI_API_KEY}`,
         payload,
         {
           headers: { "Content-Type": "application/json" },
-          timeout: 60000, // Tối ưu: Tăng timeout từ 30s -> 60s
-          httpsAgent: httpsAgent, // Tối ưu: Tái sử dụng kết nối
+          responseType: "stream", // Nhận HTTP stream
+          timeout: 60000,
+          httpsAgent: httpsAgent,
         }
       );
 
-      const candidate = response.data.candidates?.[0];
-      const content = candidate?.content;
+      let fullText = "";
+      const originalParts = [];
+      const decoder = new StringDecoder("utf8"); // ✅ Đảm bảo giải mã UTF-8 an toàn trên dòng stream
 
-      if (!content) {
-        console.error("❌ No content in Gemini response");
-        console.error(
-          "📛 Full response:",
-          JSON.stringify(response.data, null, 2)
-        );
-        throw new Error("No content in response");
-      }
+      return new Promise((resolve, reject) => {
+        let buffer = "";
 
-      // 🚀 LẤY ORIGINAL PARTS ĐỂ TRÁNH LỖI MISSING THOUGHT_SIGNATURE
-      const originalFunctionCallParts = content.parts?.filter((part) => part.functionCall);
+        response.data.on("data", (chunk) => {
+          // Giải mã an toàn chunk nhị phân
+          buffer += decoder.write(chunk);
 
-      const functionCalls = originalFunctionCallParts
-        ?.map((part) => ({
-          name: part.functionCall.name,
-          args: part.functionCall.args || {},
-        }));
+          // ✅ Giải pháp phân tích dòng (Line-based JSON stream parsing)
+          // Google stream luôn phân tách các JSON object đẹp bằng ký tự xuống dòng (\n)
+          let lines = buffer.split("\n");
+          // Giữ dòng cuối cùng chưa hoàn thiện lại trong buffer để ghép với chunk sau
+          buffer = lines.pop() || "";
 
-      const text = content.parts
-        ?.filter((part) => part.text)
-        .map((part) => part.text)
-        .join("\n");
+          for (let line of lines) {
+            line = line.trim();
+            if (!line) continue;
+            if (line === "[" || line === "]") continue;
+            // Xóa dấu phẩy phân tách các phần tử JSON array ở đầu/cuối dòng
+            if (line.startsWith(",")) line = line.substring(1).trim();
+            if (line.endsWith(",")) line = line.substring(0, line.length - 1).trim();
+            if (!line) continue;
 
-      console.log(`✅ Gemini responded successfully`);
+            try {
+              const jsonObj = JSON.parse(line);
+              const candidate = jsonObj.candidates?.[0];
+              const content = candidate?.content;
+              const text = content?.parts?.filter(p => p.text).map(p => p.text).join("");
 
-      return {
-        functionCalls: functionCalls?.length > 0 ? functionCalls : null,
-        functionCallsOriginalParts: originalFunctionCallParts, // Lưu lại để truyền lại vòng tiếp theo
-        text: text || null,
-      };
+              if (text) {
+                fullText += text;
+                if (onChunk) onChunk(text); // Stream chunk text hợp lệ về client
+              }
+
+              const parts = content?.parts?.filter(p => p.functionCall || p.text) || [];
+              originalParts.push(...parts);
+            } catch (e) {
+              // Dòng JSON chưa hoàn chỉnh do bị cắt giữa các packet, đưa trở lại buffer để xử lý lượt sau
+              buffer = line + "\n" + buffer;
+            }
+          }
+        });
+
+        response.data.on("end", () => {
+          // Xử lý nốt phần buffer còn lại
+          buffer += decoder.end();
+
+          if (buffer.trim()) {
+            let line = buffer.trim();
+            if (line.startsWith(",")) line = line.substring(1).trim();
+            if (line.endsWith(",")) line = line.substring(0, line.length - 1).trim();
+            if (line !== "[" && line !== "]") {
+              try {
+                const jsonObj = JSON.parse(line);
+                const candidate = jsonObj.candidates?.[0];
+                const content = candidate?.content;
+                const text = content?.parts?.filter(p => p.text).map(p => p.text).join("");
+                if (text) {
+                  fullText += text;
+                  if (onChunk) onChunk(text);
+                }
+                const parts = content?.parts?.filter(p => p.functionCall || p.text) || [];
+                originalParts.push(...parts);
+              } catch (e) {}
+            }
+          }
+
+          const originalFunctionCallParts = originalParts.filter((part) => part.functionCall);
+          const functionCalls = originalFunctionCallParts.map((part) => ({
+            name: part.functionCall.name,
+            args: part.functionCall.args || {},
+          }));
+
+          console.log(`✅ Gemini Stream completed. Total characters: ${fullText.length}`);
+
+          resolve({
+            functionCalls: functionCalls.length > 0 ? functionCalls : null,
+            functionCallsOriginalParts: originalFunctionCallParts,
+            text: fullText || null,
+          });
+        });
+
+        response.data.on("error", (err) => {
+          reject(err);
+        });
+      });
+
     } catch (err) {
       const status = err?.response?.status;
-      // Thêm status 429 vào danh sách có thể retry
       const isRetryable = !status || status >= 500 || status === 429;
 
       console.warn(
-        `⚠️ callGemini attempt ${attempt} failed. Status: ${status}, Message:`,
+        `⚠️ callGeminiStream attempt ${attempt} failed. Status: ${status}, Message:`,
         err?.message || err
       );
 
-      if (err?.response?.data) {
-        console.error(
-          "📛 Gemini Error Response:",
-          JSON.stringify(err.response.data, null, 2)
-        );
-      }
-
       if (attempt < maxRetries && isRetryable) {
         const jitter = Math.floor(Math.random() * 300);
-        // Nếu là lỗi 429, tăng base delay lên dài hơn (3 giây)
-        const currentBaseDelay = status === 429 ? baseDelay * 3 : baseDelay; 
+        const currentBaseDelay = status === 429 ? baseDelay * 3 : baseDelay;
         const delay = currentBaseDelay * Math.pow(2, attempt - 1) + jitter;
         
-        console.log(`🔄 Retrying in ${delay}ms (${attempt + 1}/${maxRetries}) - Reason: ${status === 429 ? 'Rate Limit (429)' : 'Server Error/Timeout'}`);
+        console.log(`🔄 Retrying Stream in ${delay}ms (${attempt + 1}/${maxRetries})`);
         await new Promise((r) => setTimeout(r, delay));
         continue;
       }
 
-      if (
-        status === 503 ||
-        status === 429 ||
-        err?.response?.data?.error?.status === "UNAVAILABLE"
-      ) {
+      if (status === 429 || status === 503) {
         return {
           functionCalls: null,
-          text: "Hệ thống hiện tại đang xử lý quá nhiều yêu cầu. Vui lòng đợi một lát rồi thử lại nhé.",
+          text: "Hệ thống hiện đang bận xử lý nhiều yêu cầu. Bạn thử lại sau nhé.",
         };
       }
-
       throw err;
     }
   }
 
   return {
     functionCalls: null,
-    text: "Hệ thống hiện đang bận. Vui lòng thử lại sau.",
+    text: "Hệ thống bận. Vui lòng thử lại sau.",
   };
 }

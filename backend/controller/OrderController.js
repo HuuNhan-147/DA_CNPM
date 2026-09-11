@@ -157,8 +157,19 @@ export const deleteOrder = async (req, res) => {
     await orderService.deleteOrder(req.params.id, req.user);
     res.status(200).json({ message: "Đơn hàng đã được xóa thành công!" });
   } catch (error) {
-    const status = error.message === "forbidden" ? 403 : (error.message === "Đơn hàng không tồn tại!" ? 404 : 500);
-    res.status(status).json({ message: error.message === "forbidden" ? "Bạn không có quyền xóa đơn hàng này!" : error.message });
+    const status = error.message === "forbidden" 
+      ? 403 
+      : (error.message === "paidOrderCannotBeDeleted" 
+        ? 400 
+        : (error.message === "Đơn hàng không tồn tại!" ? 404 : 500));
+    
+    const message = error.message === "forbidden" 
+      ? "Bạn không có quyền xóa đơn hàng này!" 
+      : (error.message === "paidOrderCannotBeDeleted" 
+        ? "Không thể xóa đơn hàng đã thanh toán!" 
+        : error.message);
+        
+    res.status(status).json({ message });
   }
 };
 

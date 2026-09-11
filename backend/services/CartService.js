@@ -6,6 +6,56 @@ import OrderItem from "../models/OrderItemModel.js";
 import Payment from "../models/PaymentModel.js";
 import mongoose from "mongoose";
 
+/**
+ * Helper định dạng response giỏ hàng đồng nhất
+ */
+export const formatCartResponse = async (cartId) => {
+  const cart = await Cart.findById(cartId).populate({
+    path: "cartItems",
+    populate: {
+      path: "product",
+      select: "name price image countInStock",
+    },
+  });
+
+  if (!cart || cart.cartItems.length === 0) {
+    return null;
+  }
+
+  const validItems = cart.cartItems.filter((item) => item.product);
+  if (validItems.length === 0) {
+    return null;
+  }
+
+  const itemsPrice = validItems.reduce((total, item) => total + item.product.price * item.quantity, 0);
+  const shippingPrice = 30000;
+  const taxPrice = itemsPrice * 0.1;
+  const totalPrice = itemsPrice + shippingPrice + taxPrice;
+
+  return {
+    cart: {
+      _id: cart._id,
+      user: cart.user,
+      cartItems: validItems.map((item) => ({
+        product: {
+          _id: item.product._id,
+          name: item.product.name,
+          price: item.product.price,
+          image: item.product.image,
+          countInStock: item.product.countInStock,
+        },
+        quantity: item.quantity,
+      })),
+      createdAt: cart.createdAt,
+      updatedAt: cart.updatedAt,
+    },
+    itemsPrice,
+    shippingPrice,
+    taxPrice,
+    totalPrice,
+  };
+};
+
 export const addToCart = async (userId, productId, quantity) => {
   const product = await Product.findById(productId);
   if (!product) throw new Error("Sản phẩm không tồn tại!");
@@ -44,52 +94,17 @@ export const addToCart = async (userId, productId, quantity) => {
     await cart.save();
   }
 
-  return await Cart.findById(cart._id).populate({
-    path: "cartItems", populate: { path: "product" }
-  });
+  return await formatCartResponse(cart._id);
 };
 
 export const getCart = async (userId) => {
-  const cart = await Cart.findOne({ user: userId }).populate({
-    path: "cartItems",
-    populate: {
-      path: "product",
-      select: "name price image countInStock",
-    },
-  });
+  const cart = await Cart.findOne({ user: userId });
+  if (!cart) throw new Error("Giỏ hàng trống!");
 
-  if (!cart || cart.cartItems.length === 0) throw new Error("Giỏ hàng trống!");
+  const formatted = await formatCartResponse(cart._id);
+  if (!formatted) throw new Error("Giỏ hàng trống!");
 
-  const validItems = cart.cartItems.filter((item) => item.product);
-  if (validItems.length === 0) throw new Error("Giỏ hàng trống hoặc sản phẩm không còn tồn tại!");
-
-  const itemsPrice = validItems.reduce((total, item) => total + item.product.price * item.quantity, 0);
-  const shippingPrice = 30000;
-  const taxPrice = itemsPrice * 0.1;
-  const totalPrice = itemsPrice + shippingPrice + taxPrice;
-
-  return {
-    cart: {
-      _id: cart._id,
-      user: cart.user,
-      cartItems: validItems.map((item) => ({
-        product: {
-          _id: item.product._id,
-          name: item.product.name,
-          price: item.product.price,
-          image: item.product.image,
-          countInStock: item.product.countInStock,
-        },
-        quantity: item.quantity,
-      })),
-      createdAt: cart.createdAt,
-      updatedAt: cart.updatedAt,
-    },
-    itemsPrice,
-    shippingPrice,
-    taxPrice,
-    totalPrice,
-  };
+  return formatted;
 };
 
 export const updateCartItem = async (userId, productId, quantity) => {
@@ -116,7 +131,7 @@ export const updateCartItem = async (userId, productId, quantity) => {
   }
 
   await cart.save();
-  return cart;
+  return await formatCartResponse(cart._id);
 };
 
 export const removeFromCart = async (userId, productId) => {
@@ -138,7 +153,7 @@ export const removeFromCart = async (userId, productId) => {
   }
 
   await cart.save();
-  return cart;
+  return await formatCartResponse(cart._id);
 };
 
 export const checkout = async (userId, checkoutData) => {
@@ -200,6 +215,10 @@ export const checkout = async (userId, checkoutData) => {
     savedOrder.payment = savedPayment._id;
     savedOrder.orderItems = insertedOrderItems.map(oi => oi._id);
     await savedOrder.save({ session });
+
+    // ✅ TỐI ƯU HÓA: Xóa giỏ hàng và các cart items liên quan sau khi đặt hàng thành công
+    await Cart.findByIdAndDelete(cart._id).session(session);
+    await CartItem.deleteMany({ cart: cart._id }).session(session);
 
     await session.commitTransaction();
     session.endSession();

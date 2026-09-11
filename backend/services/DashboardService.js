@@ -19,7 +19,7 @@ export const getDashboardStats = async () => {
 
 export const getMonthlyRevenue = async () => {
   return await Payment.aggregate([
-    { $match: { isPaid: true } },
+    { $match: { isPaid: true, paidAt: { $exists: true, $ne: null } } },
     {
       $group: {
         _id: { $dateToString: { format: "%Y-%m", date: "$paidAt" } },
@@ -79,7 +79,10 @@ export const getLatestOrders = async () => {
 };
 
 export const getLatestUsers = async () => {
-  return await User.find().sort({ createdAt: -1 }).limit(5);
+  return await User.find()
+    .sort({ createdAt: -1 })
+    .limit(5)
+    .select("-password -resetPasswordToken -resetPasswordExpires");
 };
 
 export const getOrderStatusStats = async () => {

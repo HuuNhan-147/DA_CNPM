@@ -56,7 +56,8 @@ export const connectRedis = async () => {
  */
 export const getRedisClient = () => {
   if (!redisClient || !redisClient.isOpen) {
-    throw new Error('Redis client not initialized or disconnected');
+    console.warn('⚠️ Redis client is not initialized or disconnected. Returning null.');
+    return null;
   }
   return redisClient;
 };

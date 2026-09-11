@@ -14,7 +14,14 @@ export const createPaymentUrl = async (orderId, ipAddr, bankCode, language) => {
   let vnpUrl = process.env.VNP_URL;
   let returnUrl = process.env.VNP_RETURN_URL;
   
-  const order = await Order.findById(orderId).populate("payment");
+  let order = null;
+  if (mongoose.Types.ObjectId.isValid(orderId)) {
+    order = await Order.findById(orderId).populate("payment");
+  }
+  if (!order) {
+    order = await Order.findOne({ orderCode: orderId }).populate("payment");
+  }
+
   if (!order) throw new Error("Đơn hàng không tồn tại!");
   if (!order.payment) throw new Error("Thông tin thanh toán không tồn tại!");
 
@@ -25,8 +32,8 @@ export const createPaymentUrl = async (orderId, ipAddr, bankCode, language) => {
     vnp_TmnCode: tmnCode,
     vnp_Locale: language || "vn",
     vnp_CurrCode: "VND",
-    vnp_TxnRef: orderId,
-    vnp_OrderInfo: `Thanh toan cho ma GD: ${orderId}`,
+    vnp_TxnRef: order._id.toString(),
+    vnp_OrderInfo: `Thanh toan cho ma GD: ${order.orderCode || order._id}`,
     vnp_OrderType: "other",
     vnp_Amount: amount * 100,
     vnp_ReturnUrl: returnUrl,

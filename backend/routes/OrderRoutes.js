@@ -23,8 +23,8 @@ router.get("/", protect, admin, getAllOrders);
 
 // Route lấy danh sách đơn hàng của người dùng (Chỉ dành cho người dùng đã đăng nhập)
 router.get("/me", protect, getUserOrders);
-router.get("/search", searchOrders);
-router.get("/search-user",searchOrdersByUserName);
+router.get("/search", protect, admin, searchOrders);
+router.get("/search-user", protect, admin, searchOrdersByUserName);
 // Route lấy chi tiết đơn hàng (Chỉ dành cho người dùng đã đăng nhập và Admin)
 router.get("/:id", protect, getOrderById);
 

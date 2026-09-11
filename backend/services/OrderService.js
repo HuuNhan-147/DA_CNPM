@@ -148,11 +148,15 @@ export const getUserOrders = async (userId) => {
 };
 
 export const deleteOrder = async (id, user) => {
-  const order = await Order.findById(id).populate("orderItems");
+  const order = await Order.findById(id).populate("orderItems").populate("payment");
   if (!order) throw new Error("Đơn hàng không tồn tại!");
 
   if (user._id.toString() !== order.user._id.toString() && !user.isAdmin) {
     throw new Error("forbidden");
+  }
+
+  if (order.payment?.isPaid && !user.isAdmin) {
+    throw new Error("paidOrderCannotBeDeleted");
   }
 
   if (order.stockReduced) {

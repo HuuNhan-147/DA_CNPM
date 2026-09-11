@@ -1,5 +1,5 @@
 import express from "express";
-import { runAgent } from "../utils/ai-Agent/agentCore.js";
+import { runAgent } from "../modules/ai-agent/index.js";
 import { protect } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
